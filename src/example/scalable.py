@@ -1,4 +1,3 @@
-from typing import Optional
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import KNeighborsClassifier
@@ -13,7 +12,6 @@ class ScalablePipeline(BaseDetectorPipeline):
 
     def __init__(self, **kwargs):
         super().__init__(
-            dataset_name='MIB',
             user_features=[
                 'statuses_count',
                 'followers_count',
@@ -33,29 +31,31 @@ class ScalablePipeline(BaseDetectorPipeline):
         )
     
     ############# CUSTOM FUNCTIONS #######################
-    def get_screen_name_likelihood(self, series):
+    def get_screen_name_likelihood(self, series, training):
         sequence = series.apply(lambda x: list(x.lower())).values.tolist()
-        return self.get_likelihood_array(sequence)
+        return self.get_likelihood_array(sequence, training)
         
-    def get_likelihood_array(self, sequence, n=3):
-        train_data, padded_sent = padded_everygram_pipeline(n, sequence)
-        mle = MLE(n)
-        mle.fit(train_data, padded_sent)
+    def get_likelihood_array(self, sequence, training, n=3):
+        if training:
+            train_data, padded_sent = padded_everygram_pipeline(n, sequence)
+            self.mle = MLE(n)
+            self.mle.fit(train_data, padded_sent)
         
         s = np.zeros((len(sequence),))
+
         for i, name in enumerate(sequence):
             tri = trigrams(pad_both_ends(name, n=3))
             total_score = 1
             count = 0
             for ele in tri:
-                score = mle.score(ele[2], [ele[0], ele[1]])
+                score = self.mle.score(ele[2], [ele[0], ele[1]])
                 total_score *= score
                 count += 1
             s[i] = total_score ** (1/count)
         return s
     ##################################################
 
-    def feature_engineering_u(self, user_df):
+    def feature_engineering_u(self, user_df, training):
         age = (
             pd.to_datetime(user_df['updated']) - 
             pd.to_datetime(user_df['created_at']).dt.tz_localize(None)
@@ -71,7 +71,7 @@ class ScalablePipeline(BaseDetectorPipeline):
         user_df['name_length'] = user_df['name'].str.len()
         user_df['num_digits_in_name'] = user_df['name'].str.count('\d')
         user_df['description_length'] = user_df['description'].str.len()
-        user_df['screen_name_likelihood'] = self.get_screen_name_likelihood(user_df.pop('screen_name'))
+        user_df['screen_name_likelihood'] = self.get_screen_name_likelihood(user_df.pop('screen_name'), training)
         return user_df.fillna(0.0)
 
     def classify(self, X_train, X_dev, y_train, y_dev):

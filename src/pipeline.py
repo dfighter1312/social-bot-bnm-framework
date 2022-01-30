@@ -13,10 +13,6 @@ class BaseDetectorPipeline:
     Abstract pipeline for detection.
     """
     local_file_reader = LocalFileReader()
-    user_df: pd.DataFrame
-    tweet_df: pd.DataFrame
-    tweet_metadata_df: pd.DataFrame
-    network_df: pd.DataFrame
 
     def __init__(
         self,
@@ -25,26 +21,30 @@ class BaseDetectorPipeline:
         tweet_metadata_features: Optional[Union[List[str], str]] = None,
         use_tweet: bool = False,
         use_network: bool = False,
-        verbose: bool = False
+        verbose: bool = True,
+        account_level: bool = True
     ):
         self.dataset_name = dataset_name
 
-        self.user_features = user_features
-        self.tweet_features = tweet_metadata_features
+        self.id_col = 'id'
+        self.label_col = 'label'
 
-        self.use_user = (user_features is not None)
-        self.use_tweet_metadata = (tweet_metadata_features is not None)
+        self.user_features = user_features + [self.id_col] if user_features is not None else [self.id_col]
+        self.tweet_features = tweet_metadata_features + [self.id_col] if tweet_metadata_features is not None else [self.id_col]
+
+        self.use_user = (len(self.user_features) != 1)
+        self.use_tweet_metadata = (len(self.tweet_features) != 1)
         self.use_tweet = use_tweet
         self.use_network = use_network
 
         self.verbose = verbose
-        self.label_col = 'label'
+        self.account_level = account_level
 
     def get_data(self, dataset_name: str = None):
         """Receive the dataset"""
         if dataset_name == 'MIB':
             config = self.local_file_reader.get_mib_config()
-            self.user_df, self.tweet_df, self.tweet_metadata_df = self.local_file_reader.read_mib(
+            self.dfs = self.local_file_reader.read_mib(
                 config,
                 self.label_col,
                 self.use_user,
@@ -61,11 +61,11 @@ class BaseDetectorPipeline:
                 "author if you need any updates. "
             )
 
-    def dataframe_slice(self, df: pd.DataFrame, slice: List[str]):
+    def dataframe_slice(self, df: pd.DataFrame, slice: List[str], warn: bool):
         """Select columns from slice, ignore the one that does not exist"""
         col = pd.Index(slice).append(pd.Index([self.label_col]))
         error_columns = col.difference(df.columns)
-        if len(error_columns) != 0:
+        if len(error_columns) != 0 and warn:
             print(
                 f'WARNING: {error_columns.values} does not appear in the dataset, '
                 'it/they will be ignored.'
@@ -73,46 +73,58 @@ class BaseDetectorPipeline:
         implied_slice = col.intersection(df.columns)
         return df[implied_slice]
 
-    def feature_selection(self):
+    def feature_selection(
+        self,
+        warn: bool,
+        user_df: Optional[pd.DataFrame],
+        tweet_df: Optional[pd.DataFrame],
+        tweet_metadata_df: Optional[pd.DataFrame]
+    ):
         """Selecting original features from the dataset"""
         if self.user_features == 'all':
             return
         elif isinstance(self.user_features, list):
-            self.user_df = self.dataframe_slice(self.user_df, self.user_features)
+            user_df = self.dataframe_slice(user_df, self.user_features, warn)
         elif self.user_features is not None:
             raise ValueError('Inappropriate value for user_features')
 
         if self.tweet_features == 'all':
             return
         elif isinstance(self.tweet_features, list):
-            self.tweet_metadata_df = self.dataframe_slice(
-                self.tweet_metadata_df,
-                self.tweet_features
+            tweet_metadata_df = self.dataframe_slice(
+                tweet_metadata_df,
+                self.tweet_features,
+                warn
             )
         elif self.tweet_features is not None:
             raise ValueError('Inappropriate value for tweet_features')
+        return {
+            'user_df': user_df,
+            'tweet_df': tweet_df,
+            'tweet_metadata_df': tweet_metadata_df
+        }
 
-    def semantic_encoding(self, tweet_df):
+    def semantic_encoding(self, tweet_df, training):
         """
         Implementation of the semantic encoder function,
         can be implemented here or in the `classify` method.
         """
         pass
 
-    def feature_engineering_u(self, user_df):
+    def feature_engineering_u(self, user_df, training):
         """Extract feature from selected ones, optional to be implemented"""
-        pass
+        return user_df.fillna(0.0)
 
-    def feature_engineering_ts(self, metadata_df):
+    def feature_engineering_ts(self, metadata_df, training):
         """Extract feature from selected ones, optional to be implemented"""
-        pass
+        return metadata_df.fillna(0.0)
 
-    def type_check(self, df: pd.DataFrame):
+    def type_check(self, df: pd.DataFrame, warn: bool):
         all_cols = df.columns
         df = df.select_dtypes('number')
         remaining_cols = df.columns
         removed_cols = all_cols.difference(remaining_cols)
-        if len(removed_cols) != 0:
+        if warn and len(removed_cols) != 0:
             print(f"WARNING: {removed_cols.values} will be removed since they are not numeric columns")
         return df
 
@@ -125,23 +137,31 @@ class BaseDetectorPipeline:
         """Concatenate all the dataframe"""
         # If 1 dataframe is retrieved, concatenate function
         # can be skipped, otherwise it need to be implemented
-        if (self.use_user + self.use_tweet + self.use_network) != 1:
-            raise NotImplementedError('concatenate function must be '
-                'implemented since there is more than one dataframe exists.')
-        elif self.use_user:
-            return user_df
-        elif self.use_tweet:
-            return tweet_df
-        elif self.use_tweet_metadata:
-            return tweet_metadata_df
+        total = self.use_user + self.use_tweet + self.use_tweet_metadata + self.use_network
+        if total == 1:
+            if self.use_user:
+                return user_df
+            if self.use_tweet:
+                return tweet_df
+            if self.use_tweet_metadata:
+                return tweet_metadata_df
+            if self.use_network:
+                raise NotImplementedError
+        elif total == 2:
+            if self.use_tweet and self.use_tweet_metadata:
+                return pd.concat([tweet_df, tweet_metadata_df], axis=1)
+        elif total == 3:
+            if self.use_tweet and self.use_tweet_metadata and self.use_user:
+                merged_df = pd.concat([tweet_df, tweet_metadata_df], axis=1)
+                return pd.merge(user_df, merged_df, on='id')
 
-    def train_test_split(self, df):
-        """Split into train, test and dev set with proportion (0.8, 0.1, 0.1)"""
-        train_idx, test_idx = train_test_split(range(len(df)), test_size=0.2)
-        dev_idx, test_idx = train_test_split(test_idx, test_size=0.5)
-        labels = df.pop(self.label_col)
-        return (df.iloc[train_idx], df.iloc[dev_idx], df.iloc[test_idx], 
-                labels.iloc[train_idx], labels.iloc[dev_idx], labels.iloc[test_idx])
+    def grouping(self, id, y_pred, y_test):
+        df_acc = pd.DataFrame()
+        df_acc['id'] = id
+        df_acc['pred'] = y_pred
+        df_acc['true'] = y_test
+        df_acc = df_acc.groupby('id').mean()
+        return df_acc['pred'].values > 0.5, df_acc['true'].values
 
     def evaluate(self, y_pred, y_test, time_taken):
         """Show the result on test set"""
@@ -149,11 +169,12 @@ class BaseDetectorPipeline:
         precision = round(precision_score(y_test, y_pred), 4)
         recall = round(recall_score(y_test, y_pred), 4)
         time_taken = list(map(lambda x: round(x, 4), time_taken))
+        n_samples = len(y_pred)
         output_text = (
             f"==== Evaluation result ====\n"
-            f"Dataset name: {self.dataset_name}\nAccuracy: {accuracy}\n"
-            f"Precision: {precision}\nRecall: {recall}\nFeature Engineering time: {time_taken[0]}s\n"
-            f"Training time {time_taken[1]}s\nInference time: {time_taken[2]}s"
+            f"Dataset name: {self.dataset_name} ({n_samples} samples)\nAccuracy: {accuracy}\n"
+            f"Precision: {precision}\nRecall: {recall}\n"
+            f"Training time {time_taken[0]}s\nInference time: {time_taken[1]}s"
         )
         print(output_text)
 
@@ -165,6 +186,56 @@ class BaseDetectorPipeline:
         """Predict the result"""
         raise NotImplementedError
 
+    def preprocess_train(self):
+        # Step 2: Feature Selection
+        if self.verbose:
+            print('Selecting features...')
+        self.dfs['train'] = self.feature_selection(warn=True, **self.dfs['train'])
+
+        # Step 3A: Semantic Encoder (optional)
+        if self.verbose:
+            print('Featuring the data...')
+        step_3_start = time.time()
+        if self.use_tweet:
+            self.dfs['train']['tweet_df'] = self.semantic_encoding(self.dfs['train']['tweet_df'], training=True)
+
+        # Step 3B: Feature engineering (optional)
+        if self.use_user:
+            self.dfs['train']['user_df'] = self.feature_engineering_u(self.dfs['train']['user_df'], training=True)
+            # Do a type check to ensure only numeric values remain
+            self.dfs['train']['user_df'] = self.type_check(self.dfs['train']['user_df'], warn=True)
+        if self.use_tweet_metadata:
+            self.dfs['train']['tweet_metadata_df'] = self.feature_engineering_ts(self.dfs['train']['tweet_metadata_df'], training=True)
+            # Do a type check to ensure only numeric values remain
+            self.dfs['train']['tweet_metadata_df'] = self.type_check(self.dfs['train']['tweet_metadata_df'], warn=True)
+        step_3_end = time.time()
+
+        # Step 3C: Concatenate the features
+        self.dfs['train'] = self.concatenate(**self.dfs['train'])
+        return step_3_start, step_3_end
+
+    def preprocess(self, set_name):
+        # Step 2: Feature Selection
+        self.dfs[set_name] = self.feature_selection(warn=False, **self.dfs[set_name])
+
+        # Step 3A: Semantic Encoder (optional)
+        if self.use_tweet:
+            self.dfs[set_name]['tweet_df'] = self.semantic_encoding(self.dfs[set_name]['tweet_df'], training=False)
+
+        # Step 3B: Feature engineering (optional)
+        if self.use_user:
+            self.dfs[set_name]['user_df'] = self.feature_engineering_u(self.dfs[set_name]['user_df'], training=False)
+            # Do a type check to ensure only numeric values remain
+            self.dfs[set_name]['user_df'] = self.type_check(self.dfs[set_name]['user_df'], warn=False)
+        if self.use_tweet_metadata:
+            self.dfs[set_name]['tweet_metadata_df'] = self.feature_engineering_ts(self.dfs[set_name]['tweet_metadata_df'], training=False)
+            # Do a type check to ensure only numeric values remain
+            self.dfs[set_name]['tweet_metadata_df'] = self.type_check(self.dfs[set_name]['tweet_metadata_df'], warn=False)
+
+        # Step 3C: Concatenate the features
+        self.dfs[set_name] = self.concatenate(**self.dfs[set_name])
+
+
     def run(self):
         """Process the pipeline"""
         # Step 1: Get the input dataset
@@ -172,57 +243,37 @@ class BaseDetectorPipeline:
             print('Getting data...')
         self.get_data(self.dataset_name)
 
-        # Step 2: Feature Selection
-        if self.verbose:
-            print('Selecting features...')
-        self.feature_selection()
-
-        # Step 3A: Semantic Encoder (optional)
-        if self.verbose:
-            print('Featuring the data...')
-        step_3_start = time.time()
-        if self.use_tweet:
-            self.tweet_df = self.semantic_encoding(self.tweet_df)
-
-        # Step 3B: Feature engineering (optional)
-        if self.use_user:
-            self.user_df = self.feature_engineering_u(self.user_df)
-            # Do an type check to ensure only numeric values remain
-            self.user_df = self.type_check(self.user_df)
-        if self.use_tweet_metadata:
-            self.tweet_metadata_df = self.feature_engineering_ts(self.tweet_metadata_df)
-            # Do an type check to ensure only numeric values remain
-            self.tweet_metadata_df = self.type_check(self.tweet_metadata_df)
-        step_3_end = time.time()
-
-        # Step 3C: Concatenate the features
-        df = self.concatenate(self.user_df, self.tweet_df, self.tweet_metadata_df)
-        # Delete other dataframe to save memory
-        del(self.user_df)
-        del(self.tweet_df)
-        del(self.tweet_metadata_df)
-
-        # Step 3D: train_test_split
-        X_train, X_dev, X_test, y_train, y_dev, y_test = self.train_test_split(df)
-        del(df)
+        # Step 2+3: Preprocessing
+        step_3_start, step_3_end = self.preprocess_train()
+        self.preprocess('dev')
 
         # Step 4: Classification
         if self.verbose:
             print('Classifying...')
         step_4_start = time.time()
-        self.classify(X_train, X_dev, y_train, y_dev)
+        y_train = self.dfs['train'].pop(self.label_col)
+        y_dev = self.dfs['dev'].pop(self.label_col)
+        self.dfs['train'].pop(self.id_col)
+        self.dfs['dev'].pop(self.id_col)
+        self.classify(self.dfs['train'], self.dfs['dev'], y_train, y_dev)
         step_4_end = time.time()
 
         # Step 5A: Predict on test set
         if self.verbose:
             print('Predicting the result...')
         step_5_start = time.time()
-        y_pred = self.predict(X_test)
+        self.preprocess('test')
+        y_test = self.dfs['test'].pop(self.label_col)
+        id_test = self.dfs['test'].pop(self.id_col)
+        y_pred = self.predict(self.dfs['test'])
+
+        # Step 5B: Grouping if the prediction is on every tweet, not on every account
+        if self.account_level == False:
+            y_pred, y_test = self.grouping(id_test, y_pred, y_test)
         step_5_end = time.time()
 
-        # Step 5B: Evaluate the result
+        # Step 5C: Evaluate the result
         self.evaluate(y_pred, y_test, [
-            step_3_end - step_3_start,
-            step_4_end - step_4_start,
+            (step_3_end - step_3_start) + (step_4_end - step_4_start),
             step_5_end - step_5_start
         ])
