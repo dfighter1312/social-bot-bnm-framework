@@ -27,7 +27,7 @@ class DeepAccountLevelPipeline(BaseDetectorPipeline):
         )
 
     def feature_engineering_u(self, user_df, training):
-        return user_df.fillna(0.0)
+        return user_df.replace('N', np.nan).fillna(0.0)
 
     def classify(self, X_train, X_dev, y_train, y_dev):
         self.smote = SMOTE()
@@ -130,28 +130,44 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
             )
         return tweet_df
 
-    def lstm_glove_model(self, input_shape) -> tf.keras.Model:
+    def lstm_glove_model(self, input_shape, metadata_input_shape) -> tf.keras.Model:
         X_indices = tf.keras.Input(input_shape)
         embeddings = self.embedding_layer(X_indices)
-        lstm_cell = tf.keras.layers.LSTM(32)(embeddings)
-        dense_1 = tf.keras.layers.Dense(128, activation='relu')(lstm_cell)
+        lstm_cell = tf.keras.layers.LSTM(32, return_sequences=True)(embeddings)
+        flatten = tf.keras.layers.Flatten()(lstm_cell)
+        aux_output = tf.keras.layers.Dense(1, activation='sigmoid')(flatten)
+        metadata = tf.keras.Input(metadata_input_shape)
+        concat = tf.keras.layers.concatenate([flatten, metadata], axis=1)
+        dense_1 = tf.keras.layers.Dense(128, activation='relu')(concat)
         dense_2 = tf.keras.layers.Dense(64, activation='relu')(dense_1)
-        output = tf.keras.layers.Dense(1, activation='tanh')(dense_2)
-        model = tf.keras.Model(inputs=X_indices, outputs=output)
+        output = tf.keras.layers.Dense(1, activation='sigmoid')(dense_2)
+        model = tf.keras.Model(inputs=[X_indices, metadata], outputs=[output, aux_output])
         return model
 
     def classify(self, X_train, X_dev, y_train, y_dev):
         X_train_indices = self.tokenizer.texts_to_sequences(X_train["text"])
         X_train_indices = tf.keras.preprocessing.sequence.pad_sequences(X_train_indices, maxlen=self.maxLen, padding='post')
+        X_train_metadata = X_train.drop("text", axis=1)
+
         X_dev_indices = self.tokenizer.texts_to_sequences(X_dev["text"])
         X_dev_indices = tf.keras.preprocessing.sequence.pad_sequences(X_dev_indices, maxlen=self.maxLen, padding='post')
-        self.model = self.lstm_glove_model(input_shape=(self.maxLen,))
-        optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001)
-        self.model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
-        self.model.fit(X_train_indices, y_train, batch_size=32, epochs=5, validation_data=[X_dev_indices, y_dev], verbose=2)
+        X_dev_metadata = X_dev.drop("text", axis=1)
+
+        self.model = self.lstm_glove_model(input_shape=(self.maxLen,), metadata_input_shape=(X_dev_metadata.shape[1],))
+        self.model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'], loss_weights=[0.8, 0.2])
+        self.model.fit(
+            [X_train_indices, X_train_metadata],
+            y_train,
+            batch_size=32,
+            epochs=5,
+            validation_data=[[X_dev_indices, X_dev_metadata], y_dev],
+            verbose=2
+        )
+        self.model.save('ckpts')
     
     def predict(self, X_test):
         X_test_indices = self.tokenizer.texts_to_sequences(X_test["text"])
         X_test_indices = tf.keras.preprocessing.sequence.pad_sequences(X_test_indices, maxlen=self.maxLen, padding='post')
-        y_pred = self.model.predict(X_test_indices)
+        X_test_metadata = X_test.drop("text", axis=1)
+        y_pred = self.model.predict([X_test_indices, X_test_metadata])[0]
         return y_pred

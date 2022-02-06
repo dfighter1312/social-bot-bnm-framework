@@ -29,16 +29,27 @@ class BaseDetectorPipeline:
         self.id_col = 'id'
         self.label_col = 'label'
 
-        self.user_features = user_features + [self.id_col] if user_features is not None else [self.id_col]
-        self.tweet_features = tweet_metadata_features + [self.id_col] if tweet_metadata_features is not None else [self.id_col]
+        self.user_features = self.reconfig_feature_list(user_features)
+        self.tweet_features = self.reconfig_feature_list(tweet_metadata_features)
 
         self.use_user = (len(self.user_features) != 1)
         self.use_tweet_metadata = (len(self.tweet_features) != 1)
         self.use_tweet = use_tweet
+        print(self.use_user, self.use_tweet_metadata, self.use_tweet)
         self.use_network = use_network
 
         self.verbose = verbose
         self.account_level = account_level
+
+    def reconfig_feature_list(self, feature_list):
+        if feature_list == 'all':
+            return feature_list
+        elif feature_list is None:
+            return [self.id_col]
+        elif isinstance(feature_list, list):
+            return feature_list + [self.id_col]
+        else:
+            raise TypeError('user_features or tweet_metadata_features is not valid')
 
     def get_data(self, dataset_name: str = None):
         """Receive the dataset"""
@@ -51,10 +62,20 @@ class BaseDetectorPipeline:
                 self.use_tweet,
                 self.use_tweet_metadata
             )
-
+            # Turn off network since there is no usage
+            self.use_network = False
         elif dataset_name == 'TwiBot-20':
-            self.local_file_reader.get_twibot_config()
-            # TODO: Update TwiBot-20 setup dataset
+            config = self.local_file_reader.get_twibot_config()
+            self.dfs = self.local_file_reader.read_twibot(
+                config,
+                self.label_col,
+                self.use_user,
+                self.use_tweet,
+                self.use_tweet_metadata,
+                self.use_network
+            )
+            # Turn off tweet metadata since there is no usage
+            self.use_tweet_metadata = False
         else:
             raise ValueError(
                 "dataset_name must be MIB or TwiBot-20. Contact the "
@@ -81,23 +102,24 @@ class BaseDetectorPipeline:
         tweet_metadata_df: Optional[pd.DataFrame]
     ):
         """Selecting original features from the dataset"""
-        if self.user_features == 'all':
-            return
-        elif isinstance(self.user_features, list):
-            user_df = self.dataframe_slice(user_df, self.user_features, warn)
-        elif self.user_features is not None:
-            raise ValueError('Inappropriate value for user_features')
-
-        if self.tweet_features == 'all':
-            return
-        elif isinstance(self.tweet_features, list):
-            tweet_metadata_df = self.dataframe_slice(
-                tweet_metadata_df,
-                self.tweet_features,
-                warn
-            )
-        elif self.tweet_features is not None:
-            raise ValueError('Inappropriate value for tweet_features')
+        if self.use_user:
+            if self.user_features == 'all':
+                pass
+            elif isinstance(self.user_features, list):
+                user_df = self.dataframe_slice(user_df, self.user_features, warn)
+            elif self.user_features is not None:
+                raise ValueError('Inappropriate value for user_features')
+        if self.use_tweet_metadata:
+            if self.tweet_features == 'all':
+                pass
+            elif isinstance(self.tweet_features, list):
+                tweet_metadata_df = self.dataframe_slice(
+                    tweet_metadata_df,
+                    self.tweet_features,
+                    warn
+                )
+            elif self.tweet_features is not None:
+                raise ValueError('Inappropriate value for tweet_features')
         return {
             'user_df': user_df,
             'tweet_df': tweet_df,
@@ -109,7 +131,7 @@ class BaseDetectorPipeline:
         Implementation of the semantic encoder function,
         can be implemented here or in the `classify` method.
         """
-        pass
+        return tweet_df
 
     def feature_engineering_u(self, user_df, training):
         """Extract feature from selected ones, optional to be implemented"""
@@ -120,6 +142,7 @@ class BaseDetectorPipeline:
         return metadata_df.fillna(0.0)
 
     def type_check(self, df: pd.DataFrame, warn: bool):
+        df.info()
         all_cols = df.columns
         df = df.select_dtypes('number')
         remaining_cols = df.columns
@@ -150,10 +173,26 @@ class BaseDetectorPipeline:
         elif total == 2:
             if self.use_tweet and self.use_tweet_metadata:
                 return pd.concat([tweet_df, tweet_metadata_df], axis=1)
+            if self.use_tweet and self.use_user:
+                return pd.merge(
+                    user_df,
+                    tweet_df,
+                    left_on='id',
+                    right_on='user_id' if 'user_id' in tweet_df.columns else 'id',
+                    suffixes=('', '_')
+                ).drop(self.label_col + '_', axis=1, errors='ignore')
         elif total == 3:
             if self.use_tweet and self.use_tweet_metadata and self.use_user:
                 merged_df = pd.concat([tweet_df, tweet_metadata_df], axis=1)
-                return pd.merge(user_df, merged_df, on='id')
+                return pd.merge(
+                    user_df,
+                    merged_df,
+                    left_on='id',
+                    right_on='user_id' if 'user_id' in tweet_df.columns else 'id',
+                    suffixes=('', '_')
+                ).drop(self.label_col + '_', axis=1, errors='ignore')
+        else:
+            raise NotImplementedError
 
     def grouping(self, id, y_pred, y_test):
         df_acc = pd.DataFrame()
@@ -161,7 +200,7 @@ class BaseDetectorPipeline:
         df_acc['pred'] = y_pred
         df_acc['true'] = y_test
         df_acc = df_acc.groupby('id').mean()
-        return df_acc['pred'].values > 0.5, df_acc['true'].values
+        return np.round(df_acc['pred'].values), df_acc['true'].values
 
     def evaluate(self, y_pred, y_test, time_taken):
         """Show the result on test set"""
@@ -197,7 +236,10 @@ class BaseDetectorPipeline:
             print('Featuring the data...')
         step_3_start = time.time()
         if self.use_tweet:
-            self.dfs['train']['tweet_df'] = self.semantic_encoding(self.dfs['train']['tweet_df'], training=True)
+            if isinstance(self.dfs['train']['tweet_df'], pd.DataFrame):
+                self.dfs['train']['tweet_df']['text'] = self.semantic_encoding(self.dfs['train']['tweet_df']['text'], training=True)
+            else:
+                self.dfs['train']['tweet_df'] = self.semantic_encoding(self.dfs['train']['tweet_df'], training=True)
 
         # Step 3B: Feature engineering (optional)
         if self.use_user:
@@ -220,7 +262,10 @@ class BaseDetectorPipeline:
 
         # Step 3A: Semantic Encoder (optional)
         if self.use_tweet:
-            self.dfs[set_name]['tweet_df'] = self.semantic_encoding(self.dfs[set_name]['tweet_df'], training=False)
+            if isinstance(self.dfs[set_name]['tweet_df'], pd.DataFrame):
+                self.dfs[set_name]['tweet_df']['text'] = self.semantic_encoding(self.dfs[set_name]['tweet_df']['text'], training=True)
+            else:
+                self.dfs[set_name]['tweet_df'] = self.semantic_encoding(self.dfs[set_name]['tweet_df'], training=True)
 
         # Step 3B: Feature engineering (optional)
         if self.use_user:
@@ -251,6 +296,7 @@ class BaseDetectorPipeline:
         if self.verbose:
             print('Classifying...')
         step_4_start = time.time()
+        print(self.dfs['train'])
         y_train = self.dfs['train'].pop(self.label_col)
         y_dev = self.dfs['dev'].pop(self.label_col)
         self.dfs['train'].pop(self.id_col)
