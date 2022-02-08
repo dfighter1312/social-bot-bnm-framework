@@ -51,12 +51,18 @@ class LocalFileReader:
         }
 
         # User dataframe
+        paths_user = [
+                'social_spambots_1_users',
+                'social_spambots_2_users',
+                'social_spambots_3_users',
+                # 'traditional_spambots_1_users',
+                # 'traditional_spambots_2_users',
+                # 'traditional_spambots_3_users',
+                # 'traditional_spambots_4_users',
+                'fake_followers_users'
+        ]
         df_bot_users = pd.concat(
-            [
-                pd.read_csv(config['social_spam_1_users']),
-                pd.read_csv(config['social_spam_2_users']),
-                pd.read_csv(config['social_spam_3_users']),
-            ]
+            [pd.read_csv(config[path]) for path in paths_user]
         ).reset_index(drop=True)
         df_naive_users = pd.read_csv(config['genuine_users'])
         df_bot_users[label_column] = 1
@@ -82,12 +88,20 @@ class LocalFileReader:
 
         # Tweet dataframe
         if use_tweet or use_tweet_metadata:
-            df_bot_tweets = pd.concat(
-                [
-                    pd.read_csv(config['social_spam_1_tweets']).replace(self.replace_map_dict),
-                    pd.read_csv(config['social_spam_2_tweets']).replace(self.replace_map_dict),
-                    pd.read_csv(config['social_spam_3_tweets']).replace(self.replace_map_dict)
-                ]
+            paths = [
+                'social_spambots_1_tweets',
+                'social_spambots_2_tweets',
+                'social_spambots_3_tweets',
+                # 'traditional_spambots_1_tweets',
+                # 'traditional_spambots_2_tweets',
+                # 'traditional_spambots_3_tweets',
+                # 'traditional_spambots_4_tweets',
+                'fake_followers_tweets'
+            ]
+            df_bot_tweets = pd.concat([
+                pd.read_csv(
+                    config[path],
+                ).replace(self.replace_map_dict) for path in paths]
             ).reset_index(drop=True)
             df_naive_tweets = pd.read_csv(config['genuine_tweets'], header=None, escapechar='\\')
             df_bot_tweets[label_column] = 1

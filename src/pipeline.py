@@ -1,3 +1,4 @@
+from cmath import e
 import time
 import numpy as np
 import pandas as pd
@@ -16,7 +17,6 @@ class BaseDetectorPipeline:
 
     def __init__(
         self,
-        dataset_name: str = 'MIB',
         user_features: Optional[Union[List[str], str]] = None,
         tweet_metadata_features: Optional[Union[List[str], str]] = None,
         use_tweet: bool = False,
@@ -24,7 +24,6 @@ class BaseDetectorPipeline:
         verbose: bool = True,
         account_level: bool = True
     ):
-        self.dataset_name = dataset_name
 
         self.id_col = 'id'
         self.label_col = 'label'
@@ -35,7 +34,6 @@ class BaseDetectorPipeline:
         self.use_user = (len(self.user_features) != 1)
         self.use_tweet_metadata = (len(self.tweet_features) != 1)
         self.use_tweet = use_tweet
-        print(self.use_user, self.use_tweet_metadata, self.use_tweet)
         self.use_network = use_network
 
         self.verbose = verbose
@@ -89,7 +87,8 @@ class BaseDetectorPipeline:
         if len(error_columns) != 0 and warn:
             print(
                 f'WARNING: {error_columns.values} does not appear in the dataset, '
-                'it/they will be ignored.'
+                'it/they will be ignored. If you tend to use the column in feature '
+                'engineering, use an if `column_name` in user_df.columns statement.'
             )
         implied_slice = col.intersection(df.columns)
         return df[implied_slice]
@@ -99,7 +98,7 @@ class BaseDetectorPipeline:
         warn: bool,
         user_df: Optional[pd.DataFrame],
         tweet_df: Optional[pd.DataFrame],
-        tweet_metadata_df: Optional[pd.DataFrame]
+        tweet_metadata_df: Optional[pd.DataFrame],
     ):
         """Selecting original features from the dataset"""
         if self.use_user:
@@ -142,7 +141,6 @@ class BaseDetectorPipeline:
         return metadata_df.fillna(0.0)
 
     def type_check(self, df: pd.DataFrame, warn: bool):
-        df.info()
         all_cols = df.columns
         df = df.select_dtypes('number')
         remaining_cols = df.columns
@@ -202,7 +200,7 @@ class BaseDetectorPipeline:
         df_acc = df_acc.groupby('id').mean()
         return np.round(df_acc['pred'].values), df_acc['true'].values
 
-    def evaluate(self, y_pred, y_test, time_taken):
+    def evaluate(self, y_pred, y_test, time_taken, dataset_name):
         """Show the result on test set"""
         accuracy = round(accuracy_score(y_test, y_pred), 4)
         precision = round(precision_score(y_test, y_pred), 4)
@@ -210,10 +208,10 @@ class BaseDetectorPipeline:
         time_taken = list(map(lambda x: round(x, 4), time_taken))
         n_samples = len(y_pred)
         output_text = (
-            f"==== Evaluation result ====\n"
-            f"Dataset name: {self.dataset_name} ({n_samples} samples)\nAccuracy: {accuracy}\n"
+            f"\n==== Evaluation result ====\n"
+            f"Dataset name: {dataset_name} ({n_samples} samples)\nAccuracy: {accuracy}\n"
             f"Precision: {precision}\nRecall: {recall}\n"
-            f"Training time {time_taken[0]}s\nInference time: {time_taken[1]}s"
+            f"Training time {time_taken[0]}s\nInference time: {time_taken[1]}s\n"
         )
         print(output_text)
 
@@ -237,19 +235,37 @@ class BaseDetectorPipeline:
         step_3_start = time.time()
         if self.use_tweet:
             if isinstance(self.dfs['train']['tweet_df'], pd.DataFrame):
-                self.dfs['train']['tweet_df']['text'] = self.semantic_encoding(self.dfs['train']['tweet_df']['text'], training=True)
+                self.dfs['train']['tweet_df']['text'] = self.semantic_encoding(
+                    self.dfs['train']['tweet_df']['text'],
+                    training=True
+                )
             else:
-                self.dfs['train']['tweet_df'] = self.semantic_encoding(self.dfs['train']['tweet_df'], training=True)
+                self.dfs['train']['tweet_df'] = self.semantic_encoding(
+                    self.dfs['train']['tweet_df'],
+                    training=True
+                )
 
         # Step 3B: Feature engineering (optional)
         if self.use_user:
-            self.dfs['train']['user_df'] = self.feature_engineering_u(self.dfs['train']['user_df'], training=True)
+            self.dfs['train']['user_df'] = self.feature_engineering_u(
+                self.dfs['train']['user_df'],
+                training=True
+            )
             # Do a type check to ensure only numeric values remain
-            self.dfs['train']['user_df'] = self.type_check(self.dfs['train']['user_df'], warn=True)
+            self.dfs['train']['user_df'] = self.type_check(
+                self.dfs['train']['user_df'],
+                warn=True
+            )
         if self.use_tweet_metadata:
-            self.dfs['train']['tweet_metadata_df'] = self.feature_engineering_ts(self.dfs['train']['tweet_metadata_df'], training=True)
+            self.dfs['train']['tweet_metadata_df'] = self.feature_engineering_ts(
+                self.dfs['train']['tweet_metadata_df'],
+                training=True
+            )
             # Do a type check to ensure only numeric values remain
-            self.dfs['train']['tweet_metadata_df'] = self.type_check(self.dfs['train']['tweet_metadata_df'], warn=True)
+            self.dfs['train']['tweet_metadata_df'] = self.type_check(
+                self.dfs['train']['tweet_metadata_df'],
+                warn=True
+            )
         step_3_end = time.time()
 
         # Step 3C: Concatenate the features
@@ -257,46 +273,71 @@ class BaseDetectorPipeline:
         return step_3_start, step_3_end
 
     def preprocess(self, set_name):
+        if set_name == 'train':
+            return self.preprocess_train()
         # Step 2: Feature Selection
-        self.dfs[set_name] = self.feature_selection(warn=False, **self.dfs[set_name])
+        self.dfs[set_name] = self.feature_selection(
+            warn=False,
+            **self.dfs[set_name]
+        )
 
         # Step 3A: Semantic Encoder (optional)
         if self.use_tweet:
             if isinstance(self.dfs[set_name]['tweet_df'], pd.DataFrame):
-                self.dfs[set_name]['tweet_df']['text'] = self.semantic_encoding(self.dfs[set_name]['tweet_df']['text'], training=True)
+                self.dfs[set_name]['tweet_df']['text'] = self.semantic_encoding(
+                    self.dfs[set_name]['tweet_df']['text'],
+                    training=True
+                )
             else:
-                self.dfs[set_name]['tweet_df'] = self.semantic_encoding(self.dfs[set_name]['tweet_df'], training=True)
+                self.dfs[set_name]['tweet_df'] = self.semantic_encoding(
+                    self.dfs[set_name]['tweet_df'],
+                    training=True
+                )
 
         # Step 3B: Feature engineering (optional)
         if self.use_user:
-            self.dfs[set_name]['user_df'] = self.feature_engineering_u(self.dfs[set_name]['user_df'], training=False)
+            self.dfs[set_name]['user_df'] = self.feature_engineering_u(
+                self.dfs[set_name]['user_df'],
+                training=False
+            )
             # Do a type check to ensure only numeric values remain
-            self.dfs[set_name]['user_df'] = self.type_check(self.dfs[set_name]['user_df'], warn=False)
+            self.dfs[set_name]['user_df'] = self.type_check(
+                self.dfs[set_name]['user_df'],
+                warn=False
+            )
         if self.use_tweet_metadata:
-            self.dfs[set_name]['tweet_metadata_df'] = self.feature_engineering_ts(self.dfs[set_name]['tweet_metadata_df'], training=False)
+            self.dfs[set_name]['tweet_metadata_df'] = self.feature_engineering_ts(
+                self.dfs[set_name]['tweet_metadata_df'],
+                training=False
+            )
             # Do a type check to ensure only numeric values remain
-            self.dfs[set_name]['tweet_metadata_df'] = self.type_check(self.dfs[set_name]['tweet_metadata_df'], warn=False)
+            self.dfs[set_name]['tweet_metadata_df'] = self.type_check(
+                self.dfs[set_name]['tweet_metadata_df'],
+                warn=False
+            )
 
         # Step 3C: Concatenate the features
         self.dfs[set_name] = self.concatenate(**self.dfs[set_name])
 
 
-    def run(self):
+    def run(
+        self,
+        dataset_name: str = 'MIB',
+    ):
         """Process the pipeline"""
         # Step 1: Get the input dataset
         if self.verbose:
-            print('Getting data...')
-        self.get_data(self.dataset_name)
+            print(f'Getting {dataset_name} dataset...')
+        self.get_data(dataset_name)
 
         # Step 2+3: Preprocessing
-        step_3_start, step_3_end = self.preprocess_train()
+        step_3_start, step_3_end = self.preprocess('train')
         self.preprocess('dev')
 
         # Step 4: Classification
         if self.verbose:
             print('Classifying...')
         step_4_start = time.time()
-        print(self.dfs['train'])
         y_train = self.dfs['train'].pop(self.label_col)
         y_dev = self.dfs['dev'].pop(self.label_col)
         self.dfs['train'].pop(self.id_col)
@@ -319,7 +360,12 @@ class BaseDetectorPipeline:
         step_5_end = time.time()
 
         # Step 5C: Evaluate the result
-        self.evaluate(y_pred, y_test, [
-            (step_3_end - step_3_start) + (step_4_end - step_4_start),
-            step_5_end - step_5_start
-        ])
+        self.evaluate(
+            y_pred,
+            y_test,
+            [
+                (step_3_end - step_3_start) + (step_4_end - step_4_start),
+                step_5_end - step_5_start
+            ],
+            dataset_name
+        )
