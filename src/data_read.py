@@ -2,8 +2,9 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from configparser import RawConfigParser
-
 from sklearn.model_selection import train_test_split
+
+from src.util.convert_long_date import convert_long_date
 
 
 class LocalFileReader:
@@ -55,16 +56,24 @@ class LocalFileReader:
                 'social_spambots_1_users',
                 'social_spambots_2_users',
                 'social_spambots_3_users',
-                # 'traditional_spambots_1_users',
-                # 'traditional_spambots_2_users',
-                # 'traditional_spambots_3_users',
-                # 'traditional_spambots_4_users',
+                'traditional_spambots_1_users',
                 'fake_followers_users'
         ]
+        dtypes_format = {
+            'updated': 'datetime64[ns]',
+            'created_at': 'datetime64[ns]',
+            'timestamp': 'datetime64[ns]',
+            'crawled_at': 'datetime64[ns]'
+        }
+
         df_bot_users = pd.concat(
             [pd.read_csv(config[path]) for path in paths_user]
         ).reset_index(drop=True)
+        df_bot_users['created_at'] = df_bot_users['created_at'].apply(convert_long_date)
+        df_bot_users = df_bot_users.astype(dtype=dtypes_format)
+
         df_naive_users = pd.read_csv(config['genuine_users'])
+
         df_bot_users[label_column] = 1
         df_naive_users[label_column] = 0
         df_users = pd.concat([df_bot_users, df_naive_users], ignore_index=True)
@@ -75,7 +84,7 @@ class LocalFileReader:
             df_users,
             df_users[label_column],
             random_state=0,
-            train_size=0.8)
+            train_size=0.6)
         df_users_dev, df_users_test, _, _ = train_test_split(
             df_users_test,
             df_users_test[label_column],
@@ -92,10 +101,10 @@ class LocalFileReader:
                 'social_spambots_1_tweets',
                 'social_spambots_2_tweets',
                 'social_spambots_3_tweets',
-                # 'traditional_spambots_1_tweets',
-                # 'traditional_spambots_2_tweets',
-                # 'traditional_spambots_3_tweets',
-                # 'traditional_spambots_4_tweets',
+                'traditional_spambots_1_tweets',
+                'traditional_spambots_2_tweets',
+                'traditional_spambots_3_tweets',
+                'traditional_spambots_4_tweets',
                 'fake_followers_tweets'
             ]
             df_bot_tweets = pd.concat([
