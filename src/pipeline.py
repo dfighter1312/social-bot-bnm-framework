@@ -1,13 +1,9 @@
-from cmath import e
 import time
 import numpy as np
 import pandas as pd
 from typing import List, Optional, Union
 from src.data_read import LocalFileReader
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score
-
-np.random.seed(0)
+from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score
 
 class BaseDetectorPipeline:
     """
@@ -24,12 +20,12 @@ class BaseDetectorPipeline:
         verbose: bool = True,
         account_level: bool = True
     ):
-
         self.id_col = 'id'
+        self.user_id_col = 'user_id'
         self.label_col = 'label'
 
-        self.user_features = self.reconfig_feature_list(user_features)
-        self.tweet_features = self.reconfig_feature_list(tweet_metadata_features)
+        self.user_features = self.reconfig_feature_list(user_features, self.id_col)
+        self.tweet_features = self.reconfig_feature_list(tweet_metadata_features, self.user_id_col)
 
         self.use_user = (len(self.user_features) != 1)
         self.use_tweet_metadata = (len(self.tweet_features) != 1)
@@ -39,13 +35,13 @@ class BaseDetectorPipeline:
         self.verbose = verbose
         self.account_level = account_level
 
-    def reconfig_feature_list(self, feature_list):
+    def reconfig_feature_list(self, feature_list, id_col):
         if feature_list == 'all':
             return feature_list
         elif feature_list is None:
-            return [self.id_col]
+            return [id_col]
         elif isinstance(feature_list, list):
-            return feature_list + [self.id_col]
+            return feature_list + [id_col]
         else:
             raise TypeError('user_features or tweet_metadata_features is not valid')
 
@@ -171,7 +167,7 @@ class BaseDetectorPipeline:
         elif total == 2:
             if self.use_tweet and self.use_tweet_metadata:
                 return pd.concat([tweet_df, tweet_metadata_df], axis=1)
-            if self.use_tweet and self.use_user:
+            elif self.use_tweet and self.use_user:
                 return pd.merge(
                     user_df,
                     tweet_df,
@@ -179,6 +175,8 @@ class BaseDetectorPipeline:
                     right_on='user_id' if 'user_id' in tweet_df.columns else 'id',
                     suffixes=('', '_')
                 ).drop(self.label_col + '_', axis=1, errors='ignore')
+            else:
+                raise NotImplementedError
         elif total == 3:
             if self.use_tweet and self.use_tweet_metadata and self.use_user:
                 merged_df = pd.concat([tweet_df, tweet_metadata_df], axis=1)
@@ -205,12 +203,13 @@ class BaseDetectorPipeline:
         accuracy = round(accuracy_score(y_test, y_pred), 4)
         precision = round(precision_score(y_test, y_pred), 4)
         recall = round(recall_score(y_test, y_pred), 4)
+        mcc = round(matthews_corrcoef(y_test, y_pred), 4)
         time_taken = list(map(lambda x: round(x, 4), time_taken))
         n_samples = len(y_pred)
         output_text = (
             f"\n==== Evaluation result ====\n"
             f"Dataset name: {dataset_name} ({n_samples} samples)\nAccuracy: {accuracy}\n"
-            f"Precision: {precision}\nRecall: {recall}\n"
+            f"Precision: {precision}\nRecall: {recall}\nMCC: {mcc}\n"
             f"Training time {time_taken[0]}s\nInference time: {time_taken[1]}s\n"
         )
         print(output_text)
@@ -267,7 +266,6 @@ class BaseDetectorPipeline:
                 warn=True
             )
         step_3_end = time.time()
-
         # Step 3C: Concatenate the features
         self.dfs['train'] = self.concatenate(**self.dfs['train'])
         return step_3_start, step_3_end
@@ -299,17 +297,17 @@ class BaseDetectorPipeline:
             self.dfs[set_name]['user_df'] = self.feature_engineering_u(
                 self.dfs[set_name]['user_df'],
                 training=False
-            )
+            ).fillna(0.0)
             # Do a type check to ensure only numeric values remain
             self.dfs[set_name]['user_df'] = self.type_check(
                 self.dfs[set_name]['user_df'],
                 warn=False
-            )
+            ).fillna(0.0)
         if self.use_tweet_metadata:
             self.dfs[set_name]['tweet_metadata_df'] = self.feature_engineering_ts(
                 self.dfs[set_name]['tweet_metadata_df'],
                 training=False
-            )
+            ).fillna(0.0)
             # Do a type check to ensure only numeric values remain
             self.dfs[set_name]['tweet_metadata_df'] = self.type_check(
                 self.dfs[set_name]['tweet_metadata_df'],
@@ -340,8 +338,12 @@ class BaseDetectorPipeline:
         step_4_start = time.time()
         y_train = self.dfs['train'].pop(self.label_col)
         y_dev = self.dfs['dev'].pop(self.label_col)
-        self.dfs['train'].pop(self.id_col)
-        self.dfs['dev'].pop(self.id_col)
+        try:
+            self.dfs['train'].pop(self.id_col)
+            self.dfs['dev'].pop(self.id_col)
+        except:
+            self.dfs['train'].pop(self.user_id_col)
+            self.dfs['dev'].pop(self.user_id_col)
         self.classify(self.dfs['train'], self.dfs['dev'], y_train, y_dev)
         step_4_end = time.time()
 
@@ -351,7 +353,10 @@ class BaseDetectorPipeline:
         step_5_start = time.time()
         self.preprocess('test')
         y_test = self.dfs['test'].pop(self.label_col)
-        id_test = self.dfs['test'].pop(self.id_col)
+        try:
+            id_test = self.dfs['test'].pop(self.id_col)
+        except:
+            id_test = self.dfs['test'].pop(self.user_id_col)
         y_pred = self.predict(self.dfs['test'])
 
         # Step 5B: Grouping if the prediction is on every tweet, not on every account

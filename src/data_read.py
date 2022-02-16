@@ -1,9 +1,8 @@
-from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
+from typing import Dict, List, Optional
 from configparser import RawConfigParser
 from sklearn.model_selection import train_test_split
-
 from src.util.convert_long_date import convert_long_date
 
 
@@ -47,9 +46,6 @@ class LocalFileReader:
         dfs_train = dict()
         dfs_dev = dict()
         dfs_test = dict()
-        dtypes = {
-
-        }
 
         # User dataframe
         paths_user = [
@@ -57,7 +53,6 @@ class LocalFileReader:
                 'social_spambots_2_users',
                 'social_spambots_3_users',
                 'traditional_spambots_1_users',
-                'fake_followers_users'
         ]
         dtypes_format = {
             'updated': 'datetime64[ns]',
@@ -89,7 +84,7 @@ class LocalFileReader:
             df_users_test,
             df_users_test[label_column],
             random_state=0,
-            train_size=0.5
+            train_size=0.25
         )
         dfs_train['user_df'] = df_users_train
         dfs_dev['user_df'] = df_users_dev
@@ -99,34 +94,40 @@ class LocalFileReader:
         if use_tweet or use_tweet_metadata:
             paths = [
                 'social_spambots_1_tweets',
-                'social_spambots_2_tweets',
-                'social_spambots_3_tweets',
-                'traditional_spambots_1_tweets',
-                'traditional_spambots_2_tweets',
-                'traditional_spambots_3_tweets',
-                'traditional_spambots_4_tweets',
-                'fake_followers_tweets'
             ]
+            usecols = list(range(25))
+            if not use_tweet:
+                usecols.remove(1)
             df_bot_tweets = pd.concat([
                 pd.read_csv(
                     config[path],
+                    usecols=usecols
                 ).replace(self.replace_map_dict) for path in paths]
             ).reset_index(drop=True)
-            df_naive_tweets = pd.read_csv(config['genuine_tweets'], header=None, escapechar='\\')
+            usecols.remove(12)
+            usecols.append(25)
+            df_naive_tweets = pd.read_csv(config['genuine_tweets'], usecols=usecols, header=None, escapechar='\\')
             df_bot_tweets[label_column] = 1
             df_naive_tweets[label_column] = 0
-            df_naive_tweets.drop(12, axis=1, inplace=True)
             df_naive_tweets.columns = df_bot_tweets.columns
             df_tweets = pd.concat([df_bot_tweets, df_naive_tweets], ignore_index=True)
-            
             dfs_train['tweet_metadata_df'] = pd.merge(dfs_train['user_df']['id'], df_tweets, left_on='id', right_on='user_id', suffixes=('', '_'))
             dfs_dev['tweet_metadata_df'] = pd.merge(dfs_dev['user_df']['id'], df_tweets, left_on='id', right_on='user_id', suffixes=('', '_'))
             dfs_test['tweet_metadata_df'] = pd.merge(dfs_test['user_df']['id'], df_tweets, left_on='id', right_on='user_id', suffixes=('', '_'))
             del(df_tweets)
 
-            dfs_train['tweet_df'] = dfs_train['tweet_metadata_df'].pop('text')
-            dfs_dev['tweet_df'] = dfs_dev['tweet_metadata_df'].pop('text')
-            dfs_test['tweet_df'] = dfs_test['tweet_metadata_df'].pop('text')
+            if use_tweet:
+                dfs_train['tweet_df'] = dfs_train['tweet_metadata_df'].pop('text').to_frame()
+                dfs_dev['tweet_df'] = dfs_dev['tweet_metadata_df'].pop('text').to_frame()
+                dfs_test['tweet_df'] = dfs_test['tweet_metadata_df'].pop('text').to_frame()
+                dfs_train['tweet_df']['label'] = dfs_train['tweet_metadata_df'].loc[:, 'label']
+                dfs_dev['tweet_df']['label'] = dfs_dev['tweet_metadata_df'].loc[:, 'label']
+                dfs_test['tweet_df']['label'] = dfs_test['tweet_metadata_df'].loc[:, 'label']
+                dfs_train['tweet_df']['user_id'] = dfs_train['tweet_metadata_df'].loc[:, 'user_id']
+                dfs_dev['tweet_df']['user_id'] = dfs_dev['tweet_metadata_df'].loc[:, 'user_id']
+                dfs_test['tweet_df']['user_id'] = dfs_test['tweet_metadata_df'].loc[:, 'user_id']
+            else:
+                dfs_train['tweet_df'] = dfs_dev['tweet_df'] = dfs_test['tweet_df'] = None
         else:
             dfs_train['tweet_df'] = dfs_train['tweet_metadata_df'] = None
             dfs_dev['tweet_df'] = dfs_dev['tweet_metadata_df'] = None
@@ -152,6 +153,8 @@ class LocalFileReader:
         tweet metadata features. Each element can be a Dataframe if use_[categories] is set
         to True and None otherwise.
         """
+        if not use_tweet and not use_users and not use_network and use_tweet_metadata:
+            raise ValueError('Twibot-20 dataset does not allow to use tweet metadata feature only.')
         dfs_train = dict()
         dfs_dev = dict()
         dfs_test = dict()
@@ -190,12 +193,15 @@ class LocalFileReader:
         if use_tweet:
             df_tweets_train = pd.read_csv(config['train'] + config['tweet'])
             df_tweets_train = df_tweets_train.merge(df_label_train, on='id')
+            df_tweets_train.rename(columns={'id': 'user_id'})
 
             df_tweets_test = pd.read_csv(config['test'] + config['tweet'])
             df_tweets_test = df_tweets_test.merge(df_label_test, on='id')
+            df_tweets_test.rename(columns={'id': 'user_id'})
 
             df_tweets_dev = pd.read_csv(config['dev'] + config['tweet'])
             df_tweets_dev = df_tweets_dev.merge(df_label_dev, on='id')
+            df_tweets_dev.rename(columns={'id': 'user_id'})
 
             dfs_train['tweet_df'] = df_tweets_train
             dfs_dev['tweet_df'] = df_tweets_dev

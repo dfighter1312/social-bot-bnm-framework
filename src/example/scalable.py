@@ -58,13 +58,13 @@ class ScalablePipeline(BaseDetectorPipeline):
     def feature_engineering_u(self, user_df, training):
         if 'updated' in user_df.columns:
             age = (
-                pd.to_datetime(user_df['updated']) - 
-                pd.to_datetime(user_df['created_at']).dt.tz_localize(None)
+                pd.to_datetime(user_df.loc[:, 'updated']) - 
+                pd.to_datetime(user_df.loc[:, 'created_at']).dt.tz_localize(None)
             ) / np.timedelta64(1, 'Y')
         else:
             age = (
                 pd.to_datetime(pd.to_datetime('today')) - 
-                pd.to_datetime(user_df['created_at']).dt.tz_localize(None)
+                pd.to_datetime(user_df.loc[:, 'created_at']).dt.tz_localize(None)
             ) / np.timedelta64(1, 'Y')
         user_df['tweet_freq'] = user_df['statuses_count'] / age
         user_df['followers_growth_rate'] = user_df['followers_count'] / age

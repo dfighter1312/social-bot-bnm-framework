@@ -80,15 +80,15 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
         rowlist = str(row).split()
         rowlist = [word.strip() for word in rowlist]
         rowlist = [word if not word.strip().startswith(
-            '#') else "hashtag-tag" for word in rowlist]
+            '#') else "hashtagtag" for word in rowlist]
         rowlist = [word if not word.strip().startswith(
-            '@') else "user-tag" for word in rowlist]
+            '@') else "usertag" for word in rowlist]
         rowlist = [word if not self.isAllCaps(
-            word.strip()) else word.lower() + " allcaps-tag" for word in rowlist]
+            word.strip()) else word.lower() + " allcapstag" for word in rowlist]
         rowlist = [word if not self.hasRepeatedLetters(
-            word.strip()) else word + " repeated-tag" for word in rowlist]
+            word.strip()) else word + " repeatedtag" for word in rowlist]
         rowlist = [word.lower() for word in rowlist]
-        rowlist = [re.sub(URL_PATTERN, "url-tag", word) for word in rowlist]
+        rowlist = [re.sub(URL_PATTERN, "urltag", word) for word in rowlist]
         return " ".join(rowlist)
     
     def read_glove_vector(self, glove_vec):
@@ -159,7 +159,7 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
             [X_train_indices, X_train_metadata],
             y_train,
             batch_size=32,
-            epochs=5,
+            epochs=3,
             validation_data=[[X_dev_indices, X_dev_metadata], y_dev],
             verbose=2
         )
