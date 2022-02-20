@@ -26,9 +26,6 @@ class DeepAccountLevelPipeline(BaseDetectorPipeline):
             **kwargs
         )
 
-    def feature_engineering_u(self, user_df, training):
-        return user_df.replace('N', np.nan).fillna(0.0)
-
     def classify(self, X_train, X_dev, y_train, y_dev):
         self.smote = SMOTE()
         smote_X, smote_y = self.smote.fit_resample(X_train, y_train)
@@ -47,6 +44,18 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
     def __init__(self, **kwargs):
         super().__init__(
             use_tweet=True,
+            user_features=[
+                'statuses_count',
+                'followers_count',
+                'friends_count',
+                'favourites_count',
+                'listed_count',
+                'default_profile',
+                'geo_enabled',
+                'profile_use_background_image',
+                'verified',
+                'protected'
+            ],
             tweet_metadata_features=[
                 "favorite_count",
                 "reply_count",
@@ -76,7 +85,7 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
         return False
         
     def text_tags(self, row):
-        URL_PATTERN = "^((http[s]?|ftp):\/)?\/?([^:\/\s]+)((\/\w+)*\/)([\w\-\.]+[^#?\s]+)(.*)?(#[\w\-]+)?$"
+        URL_PATTERN = r"[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
         rowlist = str(row).split()
         rowlist = [word.strip() for word in rowlist]
         rowlist = [word if not word.strip().startswith(
@@ -102,10 +111,10 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
         return word_to_vec_map
 
     def semantic_encoding(self, tweet_df, training):
-        tweet_df = tweet_df.apply(self.text_tags)
+        tweet_df["text"] = tweet_df["text"].apply(self.text_tags)
         if training:
             self.tokenizer = tf.keras.preprocessing.text.Tokenizer()
-            self.tokenizer.fit_on_texts(tweet_df)
+            self.tokenizer.fit_on_texts(tweet_df["text"])
             words_to_index = self.tokenizer.word_index
 
             word_to_vec_map = self.read_glove_vector('glove/glove.twitter.27B.50d.txt')
@@ -133,11 +142,12 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
     def lstm_glove_model(self, input_shape, metadata_input_shape) -> tf.keras.Model:
         X_indices = tf.keras.Input(input_shape)
         embeddings = self.embedding_layer(X_indices)
-        lstm_cell = tf.keras.layers.LSTM(32, return_sequences=True)(embeddings)
-        flatten = tf.keras.layers.Flatten()(lstm_cell)
-        aux_output = tf.keras.layers.Dense(1, activation='sigmoid')(flatten)
+        lstm_cell = tf.keras.layers.LSTM(32)(embeddings)
+        aux_output = tf.keras.layers.Dense(1, activation='sigmoid')(lstm_cell)
         metadata = tf.keras.Input(metadata_input_shape)
-        concat = tf.keras.layers.concatenate([flatten, metadata], axis=1)
+        # Adding a Batch Normalization layer in order to reduce the loss at first
+        norm = tf.keras.layers.BatchNormalization()(metadata)
+        concat = tf.keras.layers.concatenate([lstm_cell, norm], axis=1)
         dense_1 = tf.keras.layers.Dense(128, activation='relu')(concat)
         dense_2 = tf.keras.layers.Dense(64, activation='relu')(dense_1)
         output = tf.keras.layers.Dense(1, activation='sigmoid')(dense_2)
@@ -161,7 +171,7 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
             batch_size=32,
             epochs=3,
             validation_data=[[X_dev_indices, X_dev_metadata], y_dev],
-            verbose=2
+            verbose=1
         )
         self.model.save('ckpts')
     
@@ -169,5 +179,7 @@ class DeepTweetLevelPipeline(BaseDetectorPipeline):
         X_test_indices = self.tokenizer.texts_to_sequences(X_test["text"])
         X_test_indices = tf.keras.preprocessing.sequence.pad_sequences(X_test_indices, maxlen=self.maxLen, padding='post')
         X_test_metadata = X_test.drop("text", axis=1)
-        y_pred = self.model.predict([X_test_indices, X_test_metadata])[0]
+        y_pred = self.model.predict([X_test_indices, X_test_metadata])
+        y_pred = y_pred[0]
+        np.savetxt('./pred.txt', y_pred)
         return y_pred

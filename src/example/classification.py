@@ -30,13 +30,13 @@ class ClassificationPipeline(BaseDetectorPipeline):
         return_df = user_df[['statuses_count', 'favourites_count', 'listed_count']]
         if 'updated' in user_df.columns:
             age = (
-                pd.to_datetime(user_df.loc['updated']) - 
-                pd.to_datetime(user_df.loc['created_at']).dt.tz_localize(None)
+                pd.to_datetime(user_df['updated']) - 
+                pd.to_datetime(user_df['created_at']).dt.tz_localize(None)
             ) / np.timedelta64(1, 'Y')
         else:
             age = (
                 pd.to_datetime(pd.to_datetime('today')) - 
-                pd.to_datetime(user_df.loc[:, 'created_at']).dt.tz_localize(None)
+                pd.to_datetime(user_df['created_at']).dt.tz_localize(None)
             ) / np.timedelta64(1, 'Y')
         return_df.loc[:, 'age'] = age
         # Add 1 on denominator to avoid zero division

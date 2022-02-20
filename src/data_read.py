@@ -94,6 +94,9 @@ class LocalFileReader:
         if use_tweet or use_tweet_metadata:
             paths = [
                 'social_spambots_1_tweets',
+                'social_spambots_2_tweets',
+                'social_spambots_3_tweets',
+                'traditional_spambots_1_tweets',
             ]
             usecols = list(range(25))
             if not use_tweet:
@@ -193,15 +196,15 @@ class LocalFileReader:
         if use_tweet:
             df_tweets_train = pd.read_csv(config['train'] + config['tweet'])
             df_tweets_train = df_tweets_train.merge(df_label_train, on='id')
-            df_tweets_train.rename(columns={'id': 'user_id'})
+            df_tweets_train.rename(columns={'id': 'user_id'}, inplace=True)
 
             df_tweets_test = pd.read_csv(config['test'] + config['tweet'])
             df_tweets_test = df_tweets_test.merge(df_label_test, on='id')
-            df_tweets_test.rename(columns={'id': 'user_id'})
+            df_tweets_test.rename(columns={'id': 'user_id'}, inplace=True)
 
             df_tweets_dev = pd.read_csv(config['dev'] + config['tweet'])
             df_tweets_dev = df_tweets_dev.merge(df_label_dev, on='id')
-            df_tweets_dev.rename(columns={'id': 'user_id'})
+            df_tweets_dev.rename(columns={'id': 'user_id'}, inplace=True)
 
             dfs_train['tweet_df'] = df_tweets_train
             dfs_dev['tweet_df'] = df_tweets_dev

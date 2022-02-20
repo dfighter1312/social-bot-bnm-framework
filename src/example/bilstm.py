@@ -6,10 +6,13 @@ from src.pipeline import BaseDetectorPipeline
 class BidirectionalLSTMPipeline(BaseDetectorPipeline):
     
     def __init__(self):
-        super().__init__(use_tweet=True)
+        super().__init__(
+            use_tweet=True,
+            account_level=False
+        )
 
     def text_tags(self, row):
-        URL_PATTERN = "^((http[s]?|ftp):\/)?\/?([^:\/\s]+)((\/\w+)*\/)([\w\-\.]+[^#?\s]+)(.*)?(#[\w\-]+)?$"
+        URL_PATTERN = r"[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
         rowlist = str(row).split()
         rowlist = [word.strip().lower() for word in rowlist]
         rowlist = [word if not word.strip().startswith(
@@ -30,9 +33,7 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
         return word_to_vec_map
 
     def semantic_encoding(self, tweet_df, training):
-        print(tweet_df)
-        tweet_df = tweet_df.apply(self.text_tags)
-        print(tweet_df)
+        tweet_df = tweet_df["text"].apply(self.text_tags)
         if training:
             self.tokenizer = tf.keras.preprocessing.text.Tokenizer()
             self.tokenizer.fit_on_texts(tweet_df)
@@ -65,24 +66,21 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
             self.embedding_layer,
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, return_sequences=True, dropout=0.3)),
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, return_sequences=True, dropout=0.3)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, return_sequences=True, dropout=0.3)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, dropout=0.3)),
             tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(2, activation='softmax')
         ])
         return model
 
     def classify(self, X_train, X_dev, y_train, y_dev):
-        print(X_train)
-        print(X_dev)
         X_train_indices = self.tokenizer.texts_to_sequences(X_train["text"])
         X_train_indices = tf.keras.preprocessing.sequence.pad_sequences(X_train_indices, maxlen=self.maxLen, padding='post')
 
         X_dev_indices = self.tokenizer.texts_to_sequences(X_dev["text"])
         X_dev_indices = tf.keras.preprocessing.sequence.pad_sequences(X_dev_indices, maxlen=self.maxLen, padding='post')
 
-        y_train = np.array([y_train, 1 - y_train])
-        print(y_train)
-        y_dev = np.array([y_dev, 1 - y_dev])
+        y_train = np.array([y_train, 1 - y_train]).T
+        y_dev = np.array([y_dev, 1 - y_dev]).T
 
         self.model = self.bi_lstm_model()
         self.model.compile(
@@ -95,12 +93,12 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
             batch_size=64,
             epochs=3,
             validation_data=[X_dev_indices, y_dev],
-            verbose=2
         )
         self.model.save('ckpts')
     
     def predict(self, X_test):
         X_test_indices = self.tokenizer.texts_to_sequences(X_test["text"])
         X_test_indices = tf.keras.preprocessing.sequence.pad_sequences(X_test_indices, maxlen=self.maxLen, padding='post')
-        y_pred = self.model.predict(X_test_indices)[0]
+        y_pred = self.model.predict(X_test_indices)
+        y_pred = y_pred[:, 0]
         return y_pred

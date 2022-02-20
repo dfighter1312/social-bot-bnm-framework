@@ -5,6 +5,8 @@ from typing import List, Optional, Union
 from src.data_read import LocalFileReader
 from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score
 
+np.random.seed(0)
+
 class BaseDetectorPipeline:
     """
     Abstract pipeline for detection.
@@ -171,6 +173,7 @@ class BaseDetectorPipeline:
                 return pd.merge(
                     user_df,
                     tweet_df,
+                    how='left',
                     left_on='id',
                     right_on='user_id' if 'user_id' in tweet_df.columns else 'id',
                     suffixes=('', '_')
@@ -179,7 +182,7 @@ class BaseDetectorPipeline:
                 raise NotImplementedError
         elif total == 3:
             if self.use_tweet and self.use_tweet_metadata and self.use_user:
-                merged_df = pd.concat([tweet_df, tweet_metadata_df], axis=1)
+                merged_df = pd.concat([tweet_df["text"], tweet_metadata_df], axis=1)
                 return pd.merge(
                     user_df,
                     merged_df,
@@ -233,16 +236,16 @@ class BaseDetectorPipeline:
             print('Featuring the data...')
         step_3_start = time.time()
         if self.use_tweet:
-            if isinstance(self.dfs['train']['tweet_df'], pd.DataFrame):
-                self.dfs['train']['tweet_df']['text'] = self.semantic_encoding(
-                    self.dfs['train']['tweet_df']['text'],
-                    training=True
-                )
-            else:
-                self.dfs['train']['tweet_df'] = self.semantic_encoding(
-                    self.dfs['train']['tweet_df'],
-                    training=True
-                )
+            # if isinstance(self.dfs['train']['tweet_df'], pd.DataFrame):
+            #     self.dfs['train']['tweet_df']['text'] = self.semantic_encoding(
+            #         self.dfs['train']['tweet_df']['text'],
+            #         training=True
+            #     )
+            # else:
+            self.dfs['train']['tweet_df'] = self.semantic_encoding(
+                self.dfs['train']['tweet_df'],
+                training=True
+            )
 
         # Step 3B: Feature engineering (optional)
         if self.use_user:
@@ -281,16 +284,16 @@ class BaseDetectorPipeline:
 
         # Step 3A: Semantic Encoder (optional)
         if self.use_tweet:
-            if isinstance(self.dfs[set_name]['tweet_df'], pd.DataFrame):
-                self.dfs[set_name]['tweet_df']['text'] = self.semantic_encoding(
-                    self.dfs[set_name]['tweet_df']['text'],
-                    training=True
-                )
-            else:
-                self.dfs[set_name]['tweet_df'] = self.semantic_encoding(
-                    self.dfs[set_name]['tweet_df'],
-                    training=True
-                )
+            # if isinstance(self.dfs[set_name]['tweet_df'], pd.DataFrame):
+            #     self.dfs[set_name]['tweet_df']['text'] = self.semantic_encoding(
+            #         self.dfs[set_name]['tweet_df']['text'],
+            #         training=True
+            #     )
+            # else:
+            self.dfs[set_name]['tweet_df'] = self.semantic_encoding(
+                self.dfs[set_name]['tweet_df'],
+                training=True
+            )
 
         # Step 3B: Feature engineering (optional)
         if self.use_user:
@@ -362,6 +365,8 @@ class BaseDetectorPipeline:
         # Step 5B: Grouping if the prediction is on every tweet, not on every account
         if self.account_level == False:
             y_pred, y_test = self.grouping(id_test, y_pred, y_test)
+        print(y_pred)
+        print(y_test)
         step_5_end = time.time()
 
         # Step 5C: Evaluate the result

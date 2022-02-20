@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import FunctionTransformer
 from src.pipeline import BaseDetectorPipeline
 from nltk.lm.preprocessing import padded_everygram_pipeline, pad_both_ends
-from nltk.util import trigrams
+from nltk.util import bigrams
 from nltk.lm import MLE
 
 
@@ -35,7 +35,7 @@ class ScalablePipeline(BaseDetectorPipeline):
         sequence = series.apply(lambda x: list(x.lower())).values.tolist()
         return self.get_likelihood_array(sequence, training)
         
-    def get_likelihood_array(self, sequence, training, n=3):
+    def get_likelihood_array(self, sequence, training, n=2):
         if training:
             train_data, padded_sent = padded_everygram_pipeline(n, sequence)
             self.mle = MLE(n)
@@ -44,11 +44,11 @@ class ScalablePipeline(BaseDetectorPipeline):
         s = np.zeros((len(sequence),))
 
         for i, name in enumerate(sequence):
-            tri = trigrams(pad_both_ends(name, n=3))
+            bi = bigrams(pad_both_ends(name, n=2))
             total_score = 1
             count = 0
-            for ele in tri:
-                score = self.mle.score(ele[2], [ele[0], ele[1]])
+            for ele in bi:
+                score = self.mle.score(ele[1], [ele[0]])
                 total_score *= score
                 count += 1
             s[i] = total_score ** (1/count)
@@ -82,7 +82,7 @@ class ScalablePipeline(BaseDetectorPipeline):
 
     def classify(self, X_train, X_dev, y_train, y_dev):
         self.transformer = FunctionTransformer(np.log1p, validate=True)
-        self.classifier = KNeighborsClassifier(9)
+        self.classifier = RandomForestClassifier()
         X_train = self.transformer.transform(X_train)
         self.classifier.fit(X_train, y_train)
     
