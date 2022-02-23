@@ -17,5 +17,6 @@ if __name__ == "__main__":
     # pipeline = BidirectionalLSTMPipeline()
     # pipeline = TuringPipeline()
 
-    pipeline.run(dataset_name='MIB')
-    pipeline.run(dataset_name='TwiBot-20')
+    # pipeline.run(dataset_name='MIB')
+    # pipeline.run(dataset_name='TwiBot-20')
+    pass

@@ -33,7 +33,7 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
         return word_to_vec_map
 
     def semantic_encoding(self, tweet_df, training):
-        tweet_df = tweet_df["text"].apply(self.text_tags)
+        tweet_df["text"] = tweet_df["text"].apply(self.text_tags)
         if training:
             self.tokenizer = tf.keras.preprocessing.text.Tokenizer()
             self.tokenizer.fit_on_texts(tweet_df)
@@ -66,7 +66,7 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
             self.embedding_layer,
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, return_sequences=True, dropout=0.3)),
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, return_sequences=True, dropout=0.3)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, dropout=0.3)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(200, return_sequences=True, dropout=0.3)),
             tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(2, activation='softmax')
         ])
@@ -91,7 +91,7 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
             X_train_indices,
             y_train,
             batch_size=64,
-            epochs=3,
+            epochs=1,
             validation_data=[X_dev_indices, y_dev],
         )
         self.model.save('ckpts')
