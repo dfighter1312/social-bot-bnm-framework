@@ -26,7 +26,7 @@ Inference time: 0.3834s
 
 ## To implement a new detector
 
-- Check the [list of features](.)
+- Check the [list of features](https://drive.google.com/file/d/1DWuNymZxqCEF8v7ySHTLOAU3EIhIlvHp/view?usp=sharing)
 - Inherent your detector from `BaseDetectorPipeline`. For example:
 
 ```python
@@ -52,9 +52,9 @@ class NewPipeline(BaseDetectorPipeline):
 | feature_engineering_u | user_df: Dataframe or None, training: bool | :white_check_mark: | Process feature engineering on user property dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. The training parameter indicates the dataset is in training set (false if in validation and test set). |
 | feature_engineering_ts | tweet_metadata_df: Dataframe or None, training: bool | :white_check_mark: | Process feature engineering on tweet metadata dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. |
 | feature_engineering_n | network_df: Dataframe or None, training: bool | :white_check_mark: | Process feature engineering on network dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. *Currently not in use* |
-| semantic_encoding | tweet_df: Dataframe or None, training: bool | :white_check_mark: | Encode the text on tweet dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. *Currently not in use* |
+| semantic_encoding | tweet_df: Dataframe or None, training: bool | :white_check_mark: | Encode the text on tweet dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. |
 | concatenate | All dataframes | :white_check_mark: | Concatenate all dataframes into a single dataframe. Don't need to be overriden if only one dataframe is not None. |
-| classify | X_train, X_dev, y_train, y_dev |  | Fit the data into a model. Must be implemented. |
-| predict | X_test | | Return the predicted result from the test data. Must be implemented. |
+| classify | X_train, X_dev, y_train, y_dev |  | Fit the data into a model. **Must be implemented.** |
+| predict | X_test | | Return the predicted result from the test data. **Must be implemented.** |
   
 *You can check some examples in the `src/example` folder.*
