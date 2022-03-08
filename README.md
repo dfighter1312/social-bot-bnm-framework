@@ -49,6 +49,7 @@ class NewPipeline(BaseDetectorPipeline):
   
 | Function | Arguments | Optional | Description |
 | :--- | :---: | :--: | :--- |
+| __init__ | Any | | Initialization and run `__init__()` of `BaseDetectorPipeline`. See examples for more details. |
 | feature_engineering_u | user_df: Dataframe or None, training: bool | :white_check_mark: | Process feature engineering on user property dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. The training parameter indicates the dataset is in training set (false if in validation and test set). |
 | feature_engineering_ts | tweet_metadata_df: Dataframe or None, training: bool | :white_check_mark: | Process feature engineering on tweet metadata dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. |
 | feature_engineering_n | network_df: Dataframe or None, training: bool | :white_check_mark: | Process feature engineering on network dataframe. Returned dataframe must include label and user_id column if concatenate function is not overridden. *Currently not in use* |
