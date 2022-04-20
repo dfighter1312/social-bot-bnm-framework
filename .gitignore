@@ -155,3 +155,7 @@ dmypy.json
 cython_debug/
 
 .cpython-38.pyc
+
+
+# vscode
+.vscode

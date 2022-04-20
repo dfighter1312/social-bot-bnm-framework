@@ -91,6 +91,10 @@ class LocalFileReader:
         dfs_test['user_df'] = df_users_test
 
         # Tweet dataframe
+        tweets_dtypes_format = {
+            'place' : 'str',
+            'in_reply_to_screen_name':'str',
+        }
         if use_tweet or use_tweet_metadata:
             paths = [
                 'social_spambots_1_tweets',
@@ -104,9 +108,12 @@ class LocalFileReader:
             df_bot_tweets = pd.concat([
                 pd.read_csv(
                     config[path],
-                    usecols=usecols
-                ).replace(self.replace_map_dict) for path in paths]
-            ).reset_index(drop=True)
+                    usecols=usecols,
+                    encoding='latin-1',
+                    dtype=tweets_dtypes_format,
+                ).replace(self.replace_map_dict) 
+                for path in paths
+            ]).reset_index(drop=True)
             usecols.remove(12)
             usecols.append(25)
             df_naive_tweets = pd.read_csv(config['genuine_tweets'], usecols=usecols, header=None, escapechar='\\')
