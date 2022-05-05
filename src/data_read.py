@@ -155,17 +155,27 @@ class LocalFileReader:
         label_column,
         use_users: bool,
         use_tweet: bool,
-        use_tweet_metadata: bool
+        use_tweet_metadata: bool,
+        read_full = False
     ) -> List[Optional[pd.DataFrame]]:
         dfs = dict()
 
         # User dataframe
-        paths_user = [
-                'social_spambots_1_users',
-                'social_spambots_2_users',
-                'social_spambots_3_users',
-                'traditional_spambots_1_users',
-        ]
+        if read_full:
+            paths_user = [
+                    'social_spambots_1_users',
+                    'social_spambots_2_users',
+                    'social_spambots_3_users',
+                    'traditional_spambots_1_users',
+                    'fake_followers_users',
+            ]
+        else:
+            paths_user = [
+                    'social_spambots_1_users',
+                    'social_spambots_2_users',
+                    'social_spambots_3_users',
+                    'traditional_spambots_1_users',
+            ]
         dtypes_format = {
             'updated': 'datetime64[ns]',
             'created_at': 'datetime64[ns]',
@@ -200,6 +210,7 @@ class LocalFileReader:
                 'social_spambots_2_tweets',
                 'social_spambots_3_tweets',
                 'traditional_spambots_1_tweets',
+                'fake_followers_tweets',
             ]
             usecols = list(range(25))
             if not use_tweet:

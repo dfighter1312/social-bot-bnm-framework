@@ -24,7 +24,7 @@ class BaseEDAPipeline(BaseDetectorPipeline):
         )
 
 
-    def get_data(self, dataset_name: str = None):
+    def get_data(self, dataset_name: str = None, read_full = False):
         """Receive the dataset"""
         if dataset_name == 'MIB':
             config = self.local_file_reader.get_mib_config()
@@ -35,7 +35,8 @@ class BaseEDAPipeline(BaseDetectorPipeline):
                 self.label_col,
                 self.use_user,
                 self.use_tweet,
-                self.use_tweet_metadata
+                self.use_tweet_metadata,
+                read_full= read_full
             )
             # Turn off network since there is no usage
             self.use_network = False
