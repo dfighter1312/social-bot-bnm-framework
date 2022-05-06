@@ -91,6 +91,10 @@ class LocalFileReader:
         dfs_test['user_df'] = df_users_test
 
         # Tweet dataframe
+        tweets_dtypes_format = {
+            'place' : 'str',
+            'in_reply_to_screen_name':'str',
+        }
         if use_tweet or use_tweet_metadata:
             paths = [
                 'social_spambots_1_tweets',
@@ -104,9 +108,12 @@ class LocalFileReader:
             df_bot_tweets = pd.concat([
                 pd.read_csv(
                     config[path],
-                    usecols=usecols
-                ).replace(self.replace_map_dict) for path in paths]
-            ).reset_index(drop=True)
+                    usecols=usecols,
+                    encoding='latin-1',
+                    dtype=tweets_dtypes_format,
+                ).replace(self.replace_map_dict) 
+                for path in paths
+            ]).reset_index(drop=True)
             usecols.remove(12)
             usecols.append(25)
             df_naive_tweets = pd.read_csv(config['genuine_tweets'], usecols=usecols, header=None, escapechar='\\')
@@ -136,6 +143,135 @@ class LocalFileReader:
             dfs_dev['tweet_df'] = dfs_dev['tweet_metadata_df'] = None
             dfs_test['tweet_df'] = dfs_test['tweet_metadata_df'] = None
 
+        return {
+            'train': dfs_train,
+            'dev': dfs_dev,
+            'test': dfs_test
+        }
+
+    def read_mib_no_split(
+        self,
+        config,
+        label_column,
+        use_users: bool,
+        use_tweet: bool,
+        use_tweet_metadata: bool
+    ) -> List[Optional[pd.DataFrame]]:
+        dfs = dict()
+
+        # User dataframe
+        paths_user = [
+                'social_spambots_1_users',
+                'social_spambots_2_users',
+                'social_spambots_3_users',
+                'traditional_spambots_1_users',
+        ]
+        dtypes_format = {
+            'updated': 'datetime64[ns]',
+            'created_at': 'datetime64[ns]',
+            'timestamp': 'datetime64[ns]',
+            'crawled_at': 'datetime64[ns]'
+        }
+
+        df_bot_users = pd.concat(
+            [pd.read_csv(config[path]) for path in paths_user]
+        ).reset_index(drop=True)
+        df_bot_users['created_at'] = df_bot_users['created_at'].apply(convert_long_date)
+        df_bot_users = df_bot_users.astype(dtype=dtypes_format)
+
+        df_naive_users = pd.read_csv(config['genuine_users'])
+
+        df_bot_users[label_column] = 1
+        df_naive_users[label_column] = 0
+        df_users = pd.concat([df_bot_users, df_naive_users], ignore_index=True)
+        del(df_naive_users)
+        del(df_bot_users)
+
+        dfs['user_df'] = df_users
+
+        # Tweet dataframe
+        tweets_dtypes_format = {
+            'place' : 'str',
+            'in_reply_to_screen_name':'str',
+        }
+        if use_tweet or use_tweet_metadata:
+            paths = [
+                'social_spambots_1_tweets',
+                'social_spambots_2_tweets',
+                'social_spambots_3_tweets',
+                'traditional_spambots_1_tweets',
+            ]
+            usecols = list(range(25))
+            if not use_tweet:
+                usecols.remove(1)
+            df_bot_tweets = pd.concat([
+                pd.read_csv(
+                    config[path],
+                    usecols=usecols,
+                    encoding='latin-1',
+                    dtype=tweets_dtypes_format,
+                ).replace(self.replace_map_dict) 
+                for path in paths
+            ]).reset_index(drop=True)
+            usecols.remove(12)
+            usecols.append(25)
+            df_naive_tweets = pd.read_csv(config['genuine_tweets'], usecols=usecols, header=None, escapechar='\\')
+            df_bot_tweets[label_column] = 1
+            df_naive_tweets[label_column] = 0
+            df_naive_tweets.columns = df_bot_tweets.columns
+            df_tweets = pd.concat([df_bot_tweets, df_naive_tweets], ignore_index=True)
+            dfs['tweet_metadata_df'] = pd.merge(dfs['user_df']['id'], df_tweets, left_on='id', right_on='user_id', suffixes=('', '_'))
+            del(df_tweets)
+
+            if use_tweet:
+                dfs['tweet_df'] = dfs['tweet_metadata_df'].pop('text').to_frame()
+                dfs['tweet_df']['label'] = dfs['tweet_metadata_df'].loc[:, 'label']
+                dfs['tweet_df']['user_id'] = dfs['tweet_metadata_df'].loc[:, 'user_id']
+            else:
+                dfs['tweet_df'] = None
+        else:
+            dfs['tweet_df'] = dfs['tweet_metadata_df'] = None
+        return dfs
+
+    def split_dfs(
+        self,
+        dfs
+    ):
+        '''
+            Take dfs: Dict(user_df: ..., tweet_df: ..., tweet_metadata_df: ...)
+            -> Filter None entries
+            -> Train Test Split
+            -> Add None entries back
+            -> Return Train / Dev / Test
+        '''
+        filter_none = lambda dictionary: {k: v for k, v in dictionary.items() if v is not None}
+        valid_dfs = filter_none(dfs)
+
+        def split_by_keys(valid_dfs, train_size):
+            train_test_splitted \
+                = train_test_split(
+                    *list(valid_dfs.values()),
+                    random_state=0,
+                    train_size=train_size)
+            dfs_train = dict()
+            dfs_test = dict()
+            for i, key in enumerate(valid_dfs.keys()):
+                dfs_train[key] = train_test_splitted[i] 
+                dfs_test[key] = train_test_splitted[i+1]
+            return dfs_train, dfs_test
+        
+        dfs_train, dfs_test = split_by_keys(valid_dfs, train_size=0.6)
+        dfs_dev, dfs_test = split_by_keys(dfs_test, train_size=0.25)
+
+        def add_missing_keys(origin_dict, filtered_dict):
+            filtered_keys = filtered_dict.keys()
+            for key in origin_dict.keys():
+                if key not in filtered_keys:
+                    filtered_dict[key] = origin_dict[key]
+        
+        add_missing_keys(dfs, dfs_train)
+        add_missing_keys(dfs, dfs_dev)
+        add_missing_keys(dfs, dfs_test)
         return {
             'train': dfs_train,
             'dev': dfs_dev,
