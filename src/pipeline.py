@@ -20,7 +20,7 @@ class BaseDetectorPipeline:
         use_tweet: bool = False,
         use_network: bool = False,
         verbose: bool = True,
-        account_level: bool = True
+        account_level: bool = True,
     ):
         self.id_col = 'id'
         self.user_id_col = 'user_id'
@@ -47,7 +47,7 @@ class BaseDetectorPipeline:
         else:
             raise TypeError('user_features or tweet_metadata_features is not valid')
 
-    def get_data(self, dataset_name: str = None):
+    def get_data(self, dataset_name: str = None, nrows: Optional[int] = None):
         """Receive the dataset"""
         if dataset_name == 'MIB':
             config = self.local_file_reader.get_mib_config()
@@ -56,7 +56,20 @@ class BaseDetectorPipeline:
                 self.label_col,
                 self.use_user,
                 self.use_tweet,
-                self.use_tweet_metadata
+                self.use_tweet_metadata,
+                nrows
+            )
+            # Turn off network since there is no usage
+            self.use_network = False
+        elif dataset_name == 'MIB-2':
+            config = self.local_file_reader.get_mib_2_config()
+            self.dfs = self.local_file_reader.read_mib_2(
+                config,
+                self.label_col,
+                self.use_user,
+                self.use_tweet,
+                self.use_tweet_metadata,
+                nrows
             )
             # Turn off network since there is no usage
             self.use_network = False
@@ -68,7 +81,8 @@ class BaseDetectorPipeline:
                 self.use_user,
                 self.use_tweet,
                 self.use_tweet_metadata,
-                self.use_network
+                self.use_network,
+                nrows
             )
             # Turn off tweet metadata since there is no usage
             self.use_tweet_metadata = False
@@ -198,6 +212,7 @@ class BaseDetectorPipeline:
         df_acc['id'] = id
         df_acc['pred'] = y_pred
         df_acc['true'] = y_test
+        print(df_acc)
         df_acc = df_acc.groupby('id').mean()
         return np.round(df_acc['pred'].values), df_acc['true'].values
 
@@ -292,7 +307,7 @@ class BaseDetectorPipeline:
             # else:
             self.dfs[set_name]['tweet_df'] = self.semantic_encoding(
                 self.dfs[set_name]['tweet_df'],
-                training=True
+                training=False
             )
 
         # Step 3B: Feature engineering (optional)
@@ -324,12 +339,13 @@ class BaseDetectorPipeline:
     def run(
         self,
         dataset_name: str = 'MIB',
+        nrows: Optional[int] = None
     ):
         """Process the pipeline"""
         # Step 1: Get the input dataset
         if self.verbose:
             print(f'Getting {dataset_name} dataset...')
-        self.get_data(dataset_name)
+        self.get_data(dataset_name, nrows)
 
         # Step 2+3: Preprocessing
         step_3_start, step_3_end = self.preprocess('train')
@@ -365,8 +381,6 @@ class BaseDetectorPipeline:
         # Step 5B: Grouping if the prediction is on every tweet, not on every account
         if self.account_level == False:
             y_pred, y_test = self.grouping(id_test, y_pred, y_test)
-        print(y_pred)
-        print(y_test)
         step_5_end = time.time()
 
         # Step 5C: Evaluate the result

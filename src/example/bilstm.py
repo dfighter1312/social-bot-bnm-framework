@@ -90,11 +90,12 @@ class BidirectionalLSTMPipeline(BaseDetectorPipeline):
         self.model.fit(
             X_train_indices,
             y_train,
-            batch_size=64,
-            epochs=1,
+            batch_size=32,
+            epochs=3,
             validation_data=[X_dev_indices, y_dev],
         )
         self.model.save('ckpts')
+        # self.model = tf.keras.models.load_model('ckpts')
     
     def predict(self, X_test):
         X_test_indices = self.tokenizer.texts_to_sequences(X_test["text"])
