@@ -182,7 +182,10 @@ class BaseDetectorPipeline:
                 raise NotImplementedError
         elif total == 2:
             if self.use_tweet and self.use_tweet_metadata:
-                return pd.concat([tweet_df, tweet_metadata_df], axis=1)
+                return pd.concat([tweet_df, tweet_metadata_df], axis=1).drop(
+                    [self.id_col, self.id_col + '_'],
+                    axis=1,
+                    errors='ignore')
             elif self.use_tweet and self.use_user:
                 return pd.merge(
                     user_df,
@@ -196,14 +199,18 @@ class BaseDetectorPipeline:
                 raise NotImplementedError
         elif total == 3:
             if self.use_tweet and self.use_tweet_metadata and self.use_user:
-                merged_df = pd.concat([tweet_df["text"], tweet_metadata_df], axis=1)
+                try:
+                    tweet_df.pop(self.user_id_col)
+                except:
+                    pass
+                merged_df = pd.concat([tweet_df, tweet_metadata_df], axis=1)
                 return pd.merge(
                     user_df,
                     merged_df,
                     left_on='id',
-                    right_on='user_id' if 'user_id' in tweet_df.columns else 'id',
+                    right_on='user_id' if 'user_id' in merged_df.columns else 'id',
                     suffixes=('', '_')
-                ).drop(self.label_col + '_', axis=1, errors='ignore')
+                ).drop(self.label_col + '_', axis=1, errors='ignore').drop(self.user_id_col, axis=1, errors='ignore')
         else:
             raise NotImplementedError
 
@@ -212,7 +219,6 @@ class BaseDetectorPipeline:
         df_acc['id'] = id
         df_acc['pred'] = y_pred
         df_acc['true'] = y_test
-        print(df_acc)
         df_acc = df_acc.groupby('id').mean()
         return np.round(df_acc['pred'].values), df_acc['true'].values
 
@@ -356,7 +362,9 @@ class BaseDetectorPipeline:
             print('Classifying...')
         step_4_start = time.time()
         y_train = self.dfs['train'].pop(self.label_col)
+        y_train = y_train if isinstance(y_train, pd.Series) else y_train.iloc[:, 0]
         y_dev = self.dfs['dev'].pop(self.label_col)
+        y_dev = y_dev if isinstance(y_dev, pd.Series) else y_dev.iloc[:, 0]
         try:
             self.dfs['train'].pop(self.id_col)
             self.dfs['dev'].pop(self.id_col)
@@ -372,10 +380,12 @@ class BaseDetectorPipeline:
         step_5_start = time.time()
         self.preprocess('test')
         y_test = self.dfs['test'].pop(self.label_col)
+        y_test = y_test if isinstance(y_test, pd.Series) else y_test.iloc[:, 0]
         try:
             id_test = self.dfs['test'].pop(self.id_col)
         except:
             id_test = self.dfs['test'].pop(self.user_id_col)
+        id_test = id_test if isinstance(id_test, pd.Series) else id_test.iloc[:, 0]
         y_pred = self.predict(self.dfs['test'])
 
         # Step 5B: Grouping if the prediction is on every tweet, not on every account

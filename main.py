@@ -22,13 +22,15 @@ if __name__ == "__main__":
         dl_types='dense',
         use_tweet=True,
         encoder='tfidf',
-        num_layers=10
+        num_layers=10,
+        use_tweet_metadata=True,
+        use_users=True
     )
 
     # Set nrows to any number to receive a subset of that data
     # or None to get the whole dataset.
 
-    # pipeline.run(dataset_name='MIB')
+    pipeline.run(dataset_name='MIB', nrows=10000)
     # pipeline.run(dataset_name='MIB-2')
-    pipeline.run(dataset_name='TwiBot-20', nrows=10)
+    # pipeline.run(dataset_name='TwiBot-20', nrows=10)
     pass

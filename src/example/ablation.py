@@ -21,7 +21,9 @@ class AblationPipeline(BaseDetectorPipeline):
         use_users: bool = False,
         num_layers: Optional[int] = None,
         verbose_structure: bool = True,
-        max_features: int = 5000
+        max_features: int = 5000,
+        epochs: int = 3,
+        batch_size: int = 32,
     ):
         # Type check first
         if isinstance(units, list) and isinstance(dl_types, list):
@@ -42,9 +44,21 @@ class AblationPipeline(BaseDetectorPipeline):
         self.num_layers = num_layers
         self.encoder = encoder
         self.max_features = max_features
+        self.epochs = epochs
+        self.batch_size = batch_size
+        tweet_metadata_features = [
+            "retweet_count",
+            "reply_count",
+            "favorite_count",
+            "favorited",
+            "retweeted",
+            "num_hashtags",
+            "num_urls",
+            "num_mentions"
+        ]
         super().__init__(
             user_features='all' if use_users else None,
-            tweet_metadata_features='all' if use_tweet_metadata else None,
+            tweet_metadata_features=tweet_metadata_features if use_tweet_metadata else None,
             use_tweet=use_tweet,
             account_level=False
         )
@@ -78,8 +92,8 @@ class AblationPipeline(BaseDetectorPipeline):
         self.model.fit(
             X_train,
             y_train,
-            batch_size=32,
-            epochs=3,
+            batch_size=self.batch_size,
+            epochs=self.epochs,
             validation_data=[X_dev, y_dev],
         )
         self.model.save('ckpts')
@@ -180,7 +194,6 @@ class AblationPipeline(BaseDetectorPipeline):
                 X.toarray()
             )
             tweet_df = pd.concat([tweet_df, df_trans], axis=1).drop('text', axis=1)
-            print(tweet_df)
             return tweet_df
         else:
             X = self.tfidf.transform(tweet_df['text'])

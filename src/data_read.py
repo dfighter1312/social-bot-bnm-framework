@@ -111,13 +111,14 @@ class LocalFileReader:
                 pd.read_csv(
                     config[path],
                     usecols=usecols,
-                    nrows=nrows
+                    nrows=nrows,
+                    encoding='latin-1'
                 ).replace(self.replace_map_dict) for path in paths]
             ).reset_index(drop=True)
             usecols.remove(12)
             usecols.append(25)
             df_naive_tweets = pd.read_csv(
-                config['genuine_tweets'], usecols=usecols, header=None, escapechar='\\', nrows=nrows)
+                config['genuine_tweets'], usecols=usecols, header=None, escapechar='\\', nrows=nrows, encoding='latin-1')
             df_bot_tweets[label_column] = 1
             df_naive_tweets[label_column] = 0
             df_naive_tweets.columns = df_bot_tweets.columns
