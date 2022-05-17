@@ -1,11 +1,13 @@
 import time
 import numpy as np
+import tensorflow as tf
 import pandas as pd
 from typing import List, Optional, Union
 from src.data_read import LocalFileReader
 from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score
 
 np.random.seed(0)
+tf.random.set_seed(0)
 
 class BaseDetectorPipeline:
     """
