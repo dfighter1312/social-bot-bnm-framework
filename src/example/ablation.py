@@ -24,6 +24,7 @@ class AblationPipeline(BaseDetectorPipeline):
         max_features: int = 5000,
         epochs: int = 3,
         batch_size: int = 32,
+        normalize: bool = False
     ):
         # Type check first
         if isinstance(units, list) and isinstance(dl_types, list):
@@ -46,6 +47,7 @@ class AblationPipeline(BaseDetectorPipeline):
         self.max_features = max_features
         self.epochs = epochs
         self.batch_size = batch_size
+        self.normalize = normalize
         tweet_metadata_features = [
             "retweet_count",
             "reply_count",
@@ -194,7 +196,6 @@ class AblationPipeline(BaseDetectorPipeline):
                 X.toarray()
             )
             tweet_df = pd.concat([tweet_df, df_trans], axis=1).drop('text', axis=1)
-            print(tweet_df)
             return tweet_df
         else:
             X = self.tfidf.transform(tweet_df['text'])
@@ -209,15 +210,18 @@ class AblationPipeline(BaseDetectorPipeline):
 
     def feature_engineering_u(self, user_df, training):
         """Perform normalization"""
-        uid = user_df.pop('id')
-        label = user_df.pop('label')
-        user_df = user_df.fillna(0)
-        if training:
-            self.user_mean = user_df.mean(axis=0)
-            self.user_std = user_df.std(axis=0)
-            user_df = (user_df - self.user_mean) / self.user_std
+        if self.normalize:
+            uid = user_df.pop('id')
+            label = user_df.pop('label')
+            user_df = user_df.fillna(0)
+            if training:
+                self.user_mean = user_df.mean(axis=0)
+                self.user_std = user_df.std(axis=0)
+                user_df = (user_df - self.user_mean) / self.user_std
+            else:
+                user_df = (user_df - self.user_mean) / self.user_std
+            user_df['id'] = uid
+            user_df['label'] = label
+            return user_df.dropna(axis=1)
         else:
-            user_df = (user_df - self.user_mean) / self.user_std
-        user_df['id'] = uid
-        user_df['label'] = label
-        return user_df.dropna(axis=1)
+            return user_df.fillna(0)
