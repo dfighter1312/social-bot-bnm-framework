@@ -190,11 +190,10 @@ class BaseDetectorPipeline:
                 return pd.merge(
                     user_df,
                     tweet_df,
-                    how='left',
                     left_on='id',
                     right_on='user_id' if 'user_id' in tweet_df.columns else 'id',
                     suffixes=('', '_')
-                ).drop(self.label_col + '_', axis=1, errors='ignore')
+                ).drop(self.label_col + '_', axis=1, errors='ignore').drop(self.user_id_col, axis=1, errors='ignore')
             else:
                 raise NotImplementedError
         elif total == 3:

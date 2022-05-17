@@ -194,6 +194,7 @@ class AblationPipeline(BaseDetectorPipeline):
                 X.toarray()
             )
             tweet_df = pd.concat([tweet_df, df_trans], axis=1).drop('text', axis=1)
+            print(tweet_df)
             return tweet_df
         else:
             X = self.tfidf.transform(tweet_df['text'])
@@ -205,3 +206,18 @@ class AblationPipeline(BaseDetectorPipeline):
 
     def semantic_encoding_word2vec(self, tweet_df, training):
         pass
+
+    def feature_engineering_u(self, user_df, training):
+        """Perform normalization"""
+        uid = user_df.pop('id')
+        label = user_df.pop('label')
+        user_df = user_df.fillna(0)
+        if training:
+            self.user_mean = user_df.mean(axis=0)
+            self.user_std = user_df.std(axis=0)
+            user_df = (user_df - self.user_mean) / self.user_std
+        else:
+            user_df = (user_df - self.user_mean) / self.user_std
+        user_df['id'] = uid
+        user_df['label'] = label
+        return user_df.dropna(axis=1)
