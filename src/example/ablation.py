@@ -160,7 +160,7 @@ class AblationPipeline(BaseDetectorPipeline):
             elif type == 'maxpool':
                 model.add(tf.keras.layers.GlobalMaxPooling1D())
             elif type == 'avgpool':
-                model.add(tf.keras.layers.GlobalAvgPooling1D())
+                model.add(tf.keras.layers.GlobalAveragePooling1D())
             elif type == 'lstm':
                 model.add(tf.keras.layers.LSTM(unit, return_sequences=True))
             elif type == 'bilstm':
