@@ -48,6 +48,7 @@ class AblationPipeline(BaseDetectorPipeline):
         self.epochs = epochs
         self.batch_size = batch_size
         self.normalize = normalize
+        self.verbose_structure = verbose_structure
         tweet_metadata_features = [
             "retweet_count",
             "reply_count",
@@ -76,21 +77,42 @@ class AblationPipeline(BaseDetectorPipeline):
         else:
             raise ValueError('tokenizer: %s was not available' % (self.encoder))
 
-    def classify(self, X_train, X_dev, y_train, y_dev):
+    def classify(self, X_train: pd.DataFrame, X_dev: pd.DataFrame, y_train: pd.Series, y_dev: pd.Series):
         if self.encoder in ['glove', 'word2vec']:
-            X_train = self.tokenizer.texts_to_sequences(X_train["text"])
-            X_train = tf.keras.preprocessing.sequence.pad_sequences(X_train, maxlen=self.maxLen, padding='post')
+            X_train_text = X_train.pop("text")
+            X_train_meta = X_train.values
+            del(X_train)
+            X_train_indices = self.tokenizer.texts_to_sequences(X_train_text)
+            X_train_indices = tf.keras.preprocessing.sequence.pad_sequences(X_train_indices, maxlen=self.maxLen, padding='post')
+            del(X_train_text)
+            if self.dl_types == 'concat' or 'concat' in self.dl_types:
+                X_train = [X_train_indices, X_train_meta]
+            else:
+                X_train = X_train_indices
 
-            X_dev = self.tokenizer.texts_to_sequences(X_dev["text"])
-            X_dev = tf.keras.preprocessing.sequence.pad_sequences(X_dev, maxlen=self.maxLen, padding='post')
+            X_dev_text = X_dev.pop("text")
+            X_dev_meta = X_dev.values
+            del(X_dev)
+            X_dev_indices = self.tokenizer.texts_to_sequences(X_dev_text)
+            X_dev_indices = tf.keras.preprocessing.sequence.pad_sequences(X_dev_indices, maxlen=self.maxLen, padding='post')
+            del(X_dev_text)
+            if self.dl_types == 'concat' or 'concat' in self.dl_types:
+                X_dev = [X_dev_indices, X_dev_meta]
+            else:
+                X_dev = X_dev_indices
         elif self.encoder in ['tfidf']:
             X_train = X_train.values
             X_dev = X_dev.values
-        self.model = self.create_model()
+
+        self.model = self.create_model(meta_dim=X_train_meta.shape[1])
         self.model.compile(
             optimizer='adam',
             loss='binary_crossentropy', metrics=['accuracy']
         )
+
+        if self.verbose_structure:
+            self.model.summary()
+
         self.model.fit(
             X_train,
             y_train,
@@ -98,21 +120,31 @@ class AblationPipeline(BaseDetectorPipeline):
             epochs=self.epochs,
             validation_data=[X_dev, y_dev],
         )
+
         self.model.save('ckpts')
 
     def predict(self, X_test):
         if self.encoder in ['glove', 'word2vec']:
-            X_test = self.tokenizer.texts_to_sequences(X_test["text"])
-            X_test = tf.keras.preprocessing.sequence.pad_sequences(X_test, maxlen=self.maxLen, padding='post')
+            X_test_text = X_test.pop("text")
+            X_test_meta = X_test.values
+            del(X_test)
+            X_test_indices = self.tokenizer.texts_to_sequences(X_test_text)
+            X_test_indices = tf.keras.preprocessing.sequence.pad_sequences(X_test_indices, maxlen=self.maxLen, padding='post')
+            del(X_test_text)
+            if self.dl_types == 'concat' or 'concat' in self.dl_types:
+                X_test = [X_test_indices, X_test_meta]
+            else:
+                X_test = X_test_indices
         elif self.encoder in ['tfidf']:
             X_test = X_test.values
         y_pred = self.model.predict(X_test)
         return y_pred
 
-    def create_model(self):
+    def create_model(self, meta_dim: int = None):
         model = tf.keras.Sequential()
         if self.encoder in ['glove', 'word2vec']:
             model.add(self.embedding_layer)
+            meta_model = tf.keras.Sequential([tf.keras.layers.Dense(32, input_shape=(meta_dim,))])
         elif self.encoder in ['tfidf']:
             pass
 
@@ -129,9 +161,17 @@ class AblationPipeline(BaseDetectorPipeline):
             elif type == 'bilstm':
                 model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(unit, return_sequences=True)))
             elif type == 'dense':
-                model.add(tf.keras.layers.Dense(unit))
+                model.add(tf.keras.layers.Dense(unit, activation='relu'))
             elif type == 'flatten':
                 model.add(tf.keras.layers.Flatten())
+            elif type == 'concat':
+                model.add(tf.keras.layers.Flatten())
+                model_concat = tf.concat([meta_model.input, model.output], axis=-1)
+                dense_1 = tf.keras.layers.Dense(unit, activation='relu')(model_concat)
+                dense_2 = tf.keras.layers.Dense(unit, activation='relu')(dense_1)
+                dense_3 = tf.keras.layers.Dense(1, activation='sigmoid')(dense_2)
+                model = tf.keras.Model(inputs=[model.input, meta_model.input], outputs=dense_3)
+                return model
         
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
