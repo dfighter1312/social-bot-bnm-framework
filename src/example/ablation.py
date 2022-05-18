@@ -4,6 +4,7 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.feature_extraction.text import TfidfVectorizer
 from typing import Optional, Union, List
+from gensim.models import KeyedVectors
 
 from matplotlib.style import use
 from src.pipeline import BaseDetectorPipeline
@@ -156,6 +157,10 @@ class AblationPipeline(BaseDetectorPipeline):
         for unit, type in zip(self.units, self.dl_types):
             if type == 'cnn':
                 model.add(tf.keras.layers.Conv1D(unit, kernel_size=3))
+            elif type == 'maxpool':
+                model.add(tf.keras.layers.GlobalMaxPooling1D())
+            elif type == 'avgpool':
+                model.add(tf.keras.layers.GlobalAvgPooling1D())
             elif type == 'lstm':
                 model.add(tf.keras.layers.LSTM(unit, return_sequences=True))
             elif type == 'bilstm':
@@ -246,7 +251,40 @@ class AblationPipeline(BaseDetectorPipeline):
             return tweet_df
 
     def semantic_encoding_word2vec(self, tweet_df, training):
-        pass
+        if training:
+            self.tokenizer = tf.keras.preprocessing.text.Tokenizer()
+            self.tokenizer.fit_on_texts(tweet_df)
+            words_to_index = self.tokenizer.word_index
+
+            keyed_vectors = KeyedVectors.load_word2vec_format('word2vec/GoogleNews-vectors-negative300.bin', binary=True)
+            weights = keyed_vectors.vectors
+            word_to_vec_map = keyed_vectors.index_to_key
+            word_to_vec_map = {word_to_vec_map[i]: i for i in range(len(word_to_vec_map))}
+
+            self.maxLen = 280
+            embed_vector_len = 300
+            vocab_len = len(words_to_index) + 1
+
+            emb_matrix = np.zeros((vocab_len, embed_vector_len))
+
+            for word, index in words_to_index.items():
+                idx = word_to_vec_map.get(word, None)
+                if idx is None:
+                    embedding_vector = None
+                else:
+                    embedding_vector = weights[idx]
+                if embedding_vector is not None:
+                    emb_matrix[index, :] = embedding_vector
+
+            self.embedding_layer = tf.keras.layers.Embedding(
+                input_dim=vocab_len,
+                output_dim=embed_vector_len,
+                input_length=self.maxLen,
+                weights = [emb_matrix],
+                trainable=False
+            )
+
+        return tweet_df
 
     def feature_engineering_u(self, user_df, training):
         """Perform normalization"""
