@@ -80,19 +80,30 @@ class AblationPipeline(BaseDetectorPipeline):
 
     def classify(self, X_train: pd.DataFrame, X_dev: pd.DataFrame, y_train: pd.Series, y_dev: pd.Series):
         if self.encoder in ['glove', 'word2vec']:
-            X_train_text = X_train.pop("text")
-            X_train_meta = X_train.values
+            if isinstance(X_train, pd.DataFrame):
+                X_train_text = X_train.pop("text").values
+                X_train_meta = X_train.values
+            else:
+                X_train_text = X_train
+                X_train_meta = None
+
             del(X_train)
             X_train_indices = self.tokenizer.texts_to_sequences(X_train_text)
             X_train_indices = tf.keras.preprocessing.sequence.pad_sequences(X_train_indices, maxlen=self.maxLen, padding='post')
             del(X_train_text)
             if self.dl_types == 'concat' or 'concat' in self.dl_types:
+                if X_train_meta == None:
+                    raise TypeError("Metadata or user features are not specified to be used, but concat is employed")
                 X_train = [X_train_indices, X_train_meta]
             else:
                 X_train = X_train_indices
 
-            X_dev_text = X_dev.pop("text")
-            X_dev_meta = X_dev.values
+            if isinstance(X_dev, pd.DataFrame):
+                X_dev_text = X_dev.pop("text").values
+                X_dev_meta = X_dev.values
+            else:
+                X_dev_text = X_dev
+                X_dev_meta = None
             del(X_dev)
             X_dev_indices = self.tokenizer.texts_to_sequences(X_dev_text)
             X_dev_indices = tf.keras.preprocessing.sequence.pad_sequences(X_dev_indices, maxlen=self.maxLen, padding='post')
@@ -207,7 +218,7 @@ class AblationPipeline(BaseDetectorPipeline):
     def semantic_encoding_glove(self, tweet_df, training):
         if training:
             self.tokenizer = tf.keras.preprocessing.text.Tokenizer()
-            self.tokenizer.fit_on_texts(tweet_df)
+            self.tokenizer.fit_on_texts(tweet_df['text'])
             words_to_index = self.tokenizer.word_index
 
             word_to_vec_map = self.read_glove_vector('glove/glove.twitter.27B.50d.txt')
