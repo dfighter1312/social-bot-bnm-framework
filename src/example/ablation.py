@@ -80,35 +80,33 @@ class AblationPipeline(BaseDetectorPipeline):
 
     def classify(self, X_train: pd.DataFrame, X_dev: pd.DataFrame, y_train: pd.Series, y_dev: pd.Series):
         if self.encoder in ['glove', 'word2vec']:
-            if isinstance(X_train, pd.DataFrame):
+            if X_train.shape[1] > 1:
                 X_train_text = X_train.pop("text").values
                 X_train_meta = X_train.values
             else:
-                X_train_text = X_train
+                X_train_text = X_train.pop("text").values
                 X_train_meta = None
             del(X_train)
-
             X_train_indices = self.tokenizer.texts_to_sequences(X_train_text)
             X_train_indices = tf.keras.preprocessing.sequence.pad_sequences(X_train_indices, maxlen=self.maxLen, padding='post')
             del(X_train_text)
-            if self.dl_types == 'concat' or 'concat' in self.dl_types:
-                if X_train_meta == None:
-                    raise TypeError("Metadata or user features are not specified to be used, but concat is employed")
+            if X_train_meta is not None:
                 X_train = [X_train_indices, X_train_meta]
             else:
                 X_train = X_train_indices
 
-            if isinstance(X_dev, pd.DataFrame):
+            if X_dev.shape[1] > 1:
                 X_dev_text = X_dev.pop("text").values
                 X_dev_meta = X_dev.values
             else:
-                X_dev_text = X_dev
+                X_dev_text = X_dev.pop("text").values
                 X_dev_meta = None
             del(X_dev)
+            
             X_dev_indices = self.tokenizer.texts_to_sequences(X_dev_text)
             X_dev_indices = tf.keras.preprocessing.sequence.pad_sequences(X_dev_indices, maxlen=self.maxLen, padding='post')
             del(X_dev_text)
-            if self.dl_types == 'concat' or 'concat' in self.dl_types:
+            if X_dev_meta is not None:
                 X_dev = [X_dev_indices, X_dev_meta]
             else:
                 X_dev = X_dev_indices
@@ -117,7 +115,7 @@ class AblationPipeline(BaseDetectorPipeline):
             X_train = X_train.values
             X_dev = X_dev.values
 
-        self.model = self.create_model(meta_dim=X_train_meta.shape[1] if X_train_meta else None)
+        self.model = self.create_model(meta_dim=X_train_meta.shape[1] if X_train_meta is not None else None)
         self.model.compile(
             optimizer='adam',
             loss='binary_crossentropy', metrics=['accuracy']
@@ -130,18 +128,23 @@ class AblationPipeline(BaseDetectorPipeline):
             epochs=self.epochs,
             validation_data=[X_dev, y_dev],
         )
+        self.model.summary()
 
         self.model.save('ckpts')
 
     def predict(self, X_test):
         if self.encoder in ['glove', 'word2vec']:
-            X_test_text = X_test.pop("text")
-            X_test_meta = X_test.values
+            if X_test.shape[1] > 1:
+                X_test_text = X_test.pop("text").values
+                X_test_meta = X_test.values
+            else:
+                X_test_text = X_test.pop("text").values
+                X_test_meta = None
             del(X_test)
             X_test_indices = self.tokenizer.texts_to_sequences(X_test_text)
             X_test_indices = tf.keras.preprocessing.sequence.pad_sequences(X_test_indices, maxlen=self.maxLen, padding='post')
             del(X_test_text)
-            if self.dl_types == 'concat' or 'concat' in self.dl_types:
+            if X_test_meta is not None:
                 X_test = [X_test_indices, X_test_meta]
             else:
                 X_test = X_test_indices
@@ -154,7 +157,8 @@ class AblationPipeline(BaseDetectorPipeline):
         model = tf.keras.Sequential()
         if self.encoder in ['glove', 'word2vec']:
             model.add(self.embedding_layer)
-            meta_model = tf.keras.Sequential([tf.keras.layers.Dense(32, input_shape=(meta_dim,))])
+            if meta_dim is not None:
+                meta_model = tf.keras.Sequential([tf.keras.layers.Dense(meta_dim, input_shape=(meta_dim,))])
         elif self.encoder in ['tfidf']:
             pass
 
@@ -178,14 +182,14 @@ class AblationPipeline(BaseDetectorPipeline):
                 model.add(tf.keras.layers.Dense(unit, activation='relu'))
             elif type == 'flatten':
                 model.add(tf.keras.layers.Flatten())
-            elif type == 'concat':
-                model.add(tf.keras.layers.Flatten())
-                model_concat = tf.concat([meta_model.input, model.output], axis=-1)
-                dense_1 = tf.keras.layers.Dense(unit, activation='relu')(model_concat)
-                dense_2 = tf.keras.layers.Dense(unit, activation='relu')(dense_1)
-                dense_3 = tf.keras.layers.Dense(1, activation='sigmoid')(dense_2)
-                model = tf.keras.Model(inputs=[model.input, meta_model.input], outputs=dense_3)
-                return model
+        if meta_dim is not None:
+            model.add(tf.keras.layers.Flatten())
+            model_concat = tf.concat([meta_model.input, model.output], axis=-1)
+            dense_1 = tf.keras.layers.Dense(unit, activation='relu')(model_concat)
+            dense_2 = tf.keras.layers.Dense(unit, activation='relu')(dense_1)
+            dense_3 = tf.keras.layers.Dense(1, activation='sigmoid')(dense_2)
+            model_out = tf.keras.Model(inputs=[model.input, meta_model.input], outputs=dense_3)
+            return model_out
         
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
