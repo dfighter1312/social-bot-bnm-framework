@@ -86,8 +86,8 @@ class AblationPipeline(BaseDetectorPipeline):
             else:
                 X_train_text = X_train
                 X_train_meta = None
-
             del(X_train)
+
             X_train_indices = self.tokenizer.texts_to_sequences(X_train_text)
             X_train_indices = tf.keras.preprocessing.sequence.pad_sequences(X_train_indices, maxlen=self.maxLen, padding='post')
             del(X_train_text)
@@ -113,17 +113,15 @@ class AblationPipeline(BaseDetectorPipeline):
             else:
                 X_dev = X_dev_indices
         elif self.encoder in ['tfidf']:
+            X_train_meta = X_dev_meta = None
             X_train = X_train.values
             X_dev = X_dev.values
 
-        self.model = self.create_model(meta_dim=X_train_meta.shape[1])
+        self.model = self.create_model(meta_dim=X_train_meta.shape[1] if X_train_meta else None)
         self.model.compile(
             optimizer='adam',
             loss='binary_crossentropy', metrics=['accuracy']
         )
-
-        if self.verbose_structure:
-            self.model.summary()
 
         self.model.fit(
             X_train,
@@ -191,7 +189,7 @@ class AblationPipeline(BaseDetectorPipeline):
         
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
-        
+
         return model
     
     def text_tags(self, row):
