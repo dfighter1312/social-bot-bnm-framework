@@ -79,6 +79,8 @@ class AblationPipeline(BaseDetectorPipeline):
             raise ValueError('tokenizer: %s was not available' % (self.encoder))
 
     def classify(self, X_train: pd.DataFrame, X_dev: pd.DataFrame, y_train: pd.Series, y_dev: pd.Series):
+        y_train = y_train.values
+        y_dev = y_dev.values
         if self.encoder in ['glove', 'word2vec']:
             if X_train.shape[1] > 1:
                 X_train_text = X_train.pop("text").values
@@ -112,8 +114,9 @@ class AblationPipeline(BaseDetectorPipeline):
                 X_dev = X_dev_indices
         elif self.encoder in ['tfidf']:
             X_train_meta = X_dev_meta = None
-            X_train = X_train.values
-            X_dev = X_dev.values
+            print(X_train)
+            X_train = self.convert_sparse_matrix_to_sparse_tensor(self.tfidf.transform(X_train["text"]))
+            X_dev = self.convert_sparse_matrix_to_sparse_tensor(self.tfidf.transform(X_dev["text"]))
 
         self.model = self.create_model(meta_dim=X_train_meta.shape[1] if X_train_meta is not None else None)
         self.model.compile(
@@ -149,7 +152,7 @@ class AblationPipeline(BaseDetectorPipeline):
             else:
                 X_test = X_test_indices
         elif self.encoder in ['tfidf']:
-            X_test = X_test.values
+            X_test = self.convert_sparse_matrix_to_sparse_tensor(self.tfidf.transform(X_test["text"]))
         y_pred = self.model.predict(X_test)
         return y_pred
 
@@ -249,18 +252,8 @@ class AblationPipeline(BaseDetectorPipeline):
         if training:
             self.tfidf = TfidfVectorizer(max_features=self.max_features)
             self.tfidf.fit(tweet_df['text'])
-            X = self.tfidf.transform(tweet_df['text'])
-            df_trans = pd.DataFrame(
-                X.toarray()
-            )
-            tweet_df = pd.concat([tweet_df, df_trans], axis=1).drop('text', axis=1)
             return tweet_df
         else:
-            X = self.tfidf.transform(tweet_df['text'])
-            df_trans = pd.DataFrame(
-                X.toarray()
-            )
-            tweet_df = pd.concat([tweet_df, df_trans], axis=1).drop('text', axis=1)
             return tweet_df
 
     def semantic_encoding_word2vec(self, tweet_df, training):
@@ -316,3 +309,8 @@ class AblationPipeline(BaseDetectorPipeline):
             return user_df.dropna(axis=1)
         else:
             return user_df.fillna(0)
+
+    def convert_sparse_matrix_to_sparse_tensor(self, X):
+        coo = X.tocoo()
+        indices = np.mat([coo.row, coo.col]).transpose()
+        return tf.sparse.reorder(tf.SparseTensor(indices, coo.data, coo.shape))
