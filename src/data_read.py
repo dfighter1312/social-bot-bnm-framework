@@ -1,4 +1,5 @@
 import datetime
+import networkx
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional
@@ -41,6 +42,7 @@ class LocalFileReader:
         use_users: bool,
         use_tweet: bool,
         use_tweet_metadata: bool,
+        use_network: bool,
         nrows: Optional[int] = None
     ) -> List[Optional[pd.DataFrame]]:
         """
@@ -81,17 +83,27 @@ class LocalFileReader:
         del(df_naive_users)
         del(df_bot_users)
 
-        df_users_train, df_users_test, _, _ = train_test_split(
-            df_users,
-            df_users[label_column],
-            random_state=0,
-            train_size=0.6)
-        df_users_dev, df_users_test, _, _ = train_test_split(
-            df_users_test,
-            df_users_test[label_column],
-            random_state=0,
-            train_size=0.25
-        )
+        # Split Dataframe is used to perform train test split while keeping graph relations
+        df_split = pd.read_csv(config['split'])
+        train_ids = df_split[df_split['set'] == 'train']['user_id']
+        test_ids = df_split[df_split['set'] == 'test']['user_id']
+        dev_ids = df_split[df_split['set'] == 'dev']['user_id']
+
+        df_users_train = df_users[df_users['id'].isin(train_ids)]
+        df_users_test = df_users[df_users['id'].isin(test_ids)]
+        df_users_dev = df_users[df_users['id'].isin(dev_ids)]
+
+        # df_users_train, df_users_test, _, _ = train_test_split(
+        #     df_users,
+        #     df_users[label_column],
+        #     random_state=0,
+        #     train_size=0.6)
+        # df_users_dev, df_users_test, _, _ = train_test_split(
+        #     df_users_test,
+        #     df_users_test[label_column],
+        #     random_state=0,
+        #     train_size=0.25
+        # )
         dfs_train['user_df'] = df_users_train
         dfs_dev['user_df'] = df_users_dev
         dfs_test['user_df'] = df_users_test
@@ -151,6 +163,16 @@ class LocalFileReader:
             dfs_train['tweet_df'] = dfs_train['tweet_metadata_df'] = None
             dfs_dev['tweet_df'] = dfs_dev['tweet_metadata_df'] = None
             dfs_test['tweet_df'] = dfs_test['tweet_metadata_df'] = None
+
+        if use_network:
+            following = pd.read_csv(config['follower'])
+            dfs_train['following_df'] = following[(following['source_id'].isin(train_ids)) & (following['target_id'].isin(train_ids))]
+            dfs_dev['following_df'] = following[(following['source_id'].isin(dev_ids)) & (following['target_id'].isin(dev_ids))]
+            dfs_test['following_df'] = following[(following['source_id'].isin(test_ids)) & (following['target_id'].isin(test_ids))]
+            dfs_train['follower_df'] = dfs_train['following_df']
+            dfs_dev['follower_df'] = dfs_dev['following_df']
+            dfs_test['follower_df'] = dfs_test['following_df']
+        
 
         return {
             'train': dfs_train,
@@ -245,7 +267,12 @@ class LocalFileReader:
             print(f"WARNING: Tweet metadata is not available in TwiBot-20 dataset")
 
         if use_network:
-            print(f"WARNING: Current not support network features, but will do soon")
+            dfs_train['following_df'] = pd.read_csv(config['train'] + config['following'], dtype='Int64').dropna()
+            dfs_dev['following_df'] = pd.read_csv(config['dev'] + config['following'], dtype='Int64').dropna()
+            dfs_test['following_df'] = pd.read_csv(config['test'] + config['following'], dtype='Int64').dropna()
+            dfs_train['follower_df'] = pd.read_csv(config['train'] + config['follower'], dtype='Int64').dropna()
+            dfs_dev['follower_df'] = pd.read_csv(config['dev'] + config['follower'], dtype='Int64').dropna()
+            dfs_test['follower_df'] = pd.read_csv(config['test'] + config['follower'], dtype='Int64').dropna()
 
         return {
             'train': dfs_train,
@@ -260,6 +287,7 @@ class LocalFileReader:
         use_users: bool,
         use_tweet: bool,
         use_tweet_metadata: bool,
+        use_network: bool,
         nrows: Optional[int] = None
     ) -> List[Optional[pd.DataFrame]]:
         dfs_train = dict()
@@ -388,6 +416,9 @@ class LocalFileReader:
             dfs_train['tweet_df'] = dfs_train['tweet_metadata_df'] = None
             dfs_dev['tweet_df'] = dfs_dev['tweet_metadata_df'] = None
             dfs_test['tweet_df'] = dfs_test['tweet_metadata_df'] = None
+
+        if use_network:
+            pass
 
         return {
             'train': dfs_train,

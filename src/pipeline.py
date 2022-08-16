@@ -2,7 +2,7 @@ import time
 import numpy as np
 import tensorflow as tf
 import pandas as pd
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 from src.data_read import LocalFileReader
 from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score
 
@@ -23,6 +23,7 @@ class BaseDetectorPipeline:
         use_network: bool = False,
         verbose: bool = True,
         account_level: bool = True,
+        fe_return_pandas: bool = True
     ):
         self.id_col = 'id'
         self.user_id_col = 'user_id'
@@ -38,6 +39,7 @@ class BaseDetectorPipeline:
 
         self.verbose = verbose
         self.account_level = account_level
+        self.fe_return_pandas = fe_return_pandas
 
     def reconfig_feature_list(self, feature_list, id_col):
         if feature_list == 'all':
@@ -59,10 +61,9 @@ class BaseDetectorPipeline:
                 self.use_user,
                 self.use_tweet,
                 self.use_tweet_metadata,
+                self.use_network,
                 nrows
             )
-            # Turn off network since there is no usage
-            self.use_network = False
         elif dataset_name == 'MIB-2':
             config = self.local_file_reader.get_mib_2_config()
             self.dfs = self.local_file_reader.read_mib_2(
@@ -71,10 +72,9 @@ class BaseDetectorPipeline:
                 self.use_user,
                 self.use_tweet,
                 self.use_tweet_metadata,
+                self.use_network,
                 nrows
             )
-            # Turn off network since there is no usage
-            self.use_network = False
         elif dataset_name == 'TwiBot-20':
             config = self.local_file_reader.get_twibot_config()
             self.dfs = self.local_file_reader.read_twibot(
@@ -113,6 +113,8 @@ class BaseDetectorPipeline:
         user_df: Optional[pd.DataFrame],
         tweet_df: Optional[pd.DataFrame],
         tweet_metadata_df: Optional[pd.DataFrame],
+        following_df = None,
+        follower_df = None
     ):
         """Selecting original features from the dataset"""
         if self.use_user:
@@ -136,7 +138,9 @@ class BaseDetectorPipeline:
         return {
             'user_df': user_df,
             'tweet_df': tweet_df,
-            'tweet_metadata_df': tweet_metadata_df
+            'tweet_metadata_df': tweet_metadata_df,
+            'following_df': following_df,
+            'follower_df': follower_df
         }
 
     def semantic_encoding(self, tweet_df, training):
@@ -154,6 +158,9 @@ class BaseDetectorPipeline:
         """Extract feature from selected ones, optional to be implemented"""
         return metadata_df.fillna(0.0)
 
+    def process_graph(self, following_df, follower_df, user_df):
+        raise NotImplementedError('The method has not been implemented yet')
+
     def type_check(self, df: pd.DataFrame, warn: bool):
         all_cols = df.columns
         df = df.select_dtypes('number')
@@ -165,11 +172,13 @@ class BaseDetectorPipeline:
 
     def concatenate(
         self,
-        user_df: Optional[pd.DataFrame],
-        tweet_df: Optional[pd.DataFrame],
-        tweet_metadata_df: Optional[pd.DataFrame]
+        user_df: Optional[pd.DataFrame] = None,
+        tweet_df: Optional[pd.DataFrame] = None,
+        tweet_metadata_df: Optional[pd.DataFrame] = None,
+        following_df: Optional[Any] = None,
+        follower_df: Optional[Any] = None
     ) -> pd.DataFrame:
-        """Concatenate all the dataframe"""
+        """Concatenate all the dataframe and related data"""
         # If 1 dataframe is retrieved, concatenate function
         # can be skipped, otherwise it need to be implemented
         total = self.use_user + self.use_tweet + self.use_tweet_metadata + self.use_network
@@ -253,17 +262,20 @@ class BaseDetectorPipeline:
             print('Selecting features...')
         self.dfs['train'] = self.feature_selection(warn=True, **self.dfs['train'])
 
+        # Step 3A: Process graph (optional)
+        if self.use_network:
+            self.dfs['train']['following_df'], self.dfs['train']['follower_df'] = self.process_graph(
+                self.dfs['train']['following_df'],
+                self.dfs['train']['follower_df'],
+                self.dfs['train']['user_df'],
+                training=True
+            )
+
         # Step 3A: Semantic Encoder (optional)
         if self.verbose:
             print('Featuring the data...')
         step_3_start = time.time()
         if self.use_tweet:
-            # if isinstance(self.dfs['train']['tweet_df'], pd.DataFrame):
-            #     self.dfs['train']['tweet_df']['text'] = self.semantic_encoding(
-            #         self.dfs['train']['tweet_df']['text'],
-            #         training=True
-            #     )
-            # else:
             self.dfs['train']['tweet_df'] = self.semantic_encoding(
                 self.dfs['train']['tweet_df'],
                 training=True
@@ -275,21 +287,23 @@ class BaseDetectorPipeline:
                 self.dfs['train']['user_df'],
                 training=True
             )
-            # Do a type check to ensure only numeric values remain
-            self.dfs['train']['user_df'] = self.type_check(
-                self.dfs['train']['user_df'],
-                warn=True
-            )
+            if self.fe_return_pandas:
+                # Do a type check to ensure only numeric values remain
+                self.dfs['train']['user_df'] = self.type_check(
+                    self.dfs['train']['user_df'],
+                    warn=True
+                )
         if self.use_tweet_metadata:
             self.dfs['train']['tweet_metadata_df'] = self.feature_engineering_ts(
                 self.dfs['train']['tweet_metadata_df'],
                 training=True
             )
-            # Do a type check to ensure only numeric values remain
-            self.dfs['train']['tweet_metadata_df'] = self.type_check(
-                self.dfs['train']['tweet_metadata_df'],
-                warn=True
-            )
+            if self.fe_return_pandas:
+                # Do a type check to ensure only numeric values remain
+                self.dfs['train']['tweet_metadata_df'] = self.type_check(
+                    self.dfs['train']['tweet_metadata_df'],
+                    warn=True
+                )
         step_3_end = time.time()
         # Step 3C: Concatenate the features
         self.dfs['train'] = self.concatenate(**self.dfs['train'])
@@ -304,7 +318,16 @@ class BaseDetectorPipeline:
             **self.dfs[set_name]
         )
 
-        # Step 3A: Semantic Encoder (optional)
+        # Step 3A: Process graph (optional)
+        if self.use_network:
+            self.dfs[set_name]['following_df'], self.dfs[set_name]['follower_df'] = self.process_graph(
+                self.dfs[set_name]['following_df'],
+                self.dfs[set_name]['follower_df'],
+                self.dfs[set_name]['user_df'],
+                training=False
+            )
+
+        # Step 3B: Semantic Encoder (optional)
         if self.use_tweet:
             # if isinstance(self.dfs[set_name]['tweet_df'], pd.DataFrame):
             #     self.dfs[set_name]['tweet_df']['text'] = self.semantic_encoding(
@@ -317,29 +340,31 @@ class BaseDetectorPipeline:
                 training=False
             )
 
-        # Step 3B: Feature engineering (optional)
+        # Step 3C: Feature engineering (optional)
         if self.use_user:
             self.dfs[set_name]['user_df'] = self.feature_engineering_u(
                 self.dfs[set_name]['user_df'],
                 training=False
-            ).fillna(0.0)
-            # Do a type check to ensure only numeric values remain
-            self.dfs[set_name]['user_df'] = self.type_check(
-                self.dfs[set_name]['user_df'],
-                warn=False
-            ).fillna(0.0)
+            )
+            if self.fe_return_pandas:
+                # Do a type check to ensure only numeric values remain
+                self.dfs[set_name]['user_df'] = self.type_check(
+                    self.dfs[set_name]['user_df'],
+                    warn=False
+                )
         if self.use_tweet_metadata:
             self.dfs[set_name]['tweet_metadata_df'] = self.feature_engineering_ts(
                 self.dfs[set_name]['tweet_metadata_df'],
                 training=False
-            ).fillna(0.0)
-            # Do a type check to ensure only numeric values remain
-            self.dfs[set_name]['tweet_metadata_df'] = self.type_check(
-                self.dfs[set_name]['tweet_metadata_df'],
-                warn=False
             )
+            if self.fe_return_pandas:
+                # Do a type check to ensure only numeric values remain
+                self.dfs[set_name]['tweet_metadata_df'] = self.type_check(
+                    self.dfs[set_name]['tweet_metadata_df'],
+                    warn=False
+                )
 
-        # Step 3C: Concatenate the features
+        # Step 3D: Concatenate the features
         self.dfs[set_name] = self.concatenate(**self.dfs[set_name])
 
 
@@ -362,17 +387,20 @@ class BaseDetectorPipeline:
         if self.verbose:
             print('Classifying...')
         step_4_start = time.time()
-        y_train = self.dfs['train'].pop(self.label_col)
-        y_train = y_train if isinstance(y_train, pd.Series) else y_train.iloc[:, 0]
-        y_dev = self.dfs['dev'].pop(self.label_col)
-        y_dev = y_dev if isinstance(y_dev, pd.Series) else y_dev.iloc[:, 0]
-        try:
-            self.dfs['train'].pop(self.id_col)
-            self.dfs['dev'].pop(self.id_col)
-        except:
-            self.dfs['train'].pop(self.user_id_col)
-            self.dfs['dev'].pop(self.user_id_col)
-        self.classify(self.dfs['train'], self.dfs['dev'], y_train, y_dev)
+        if self.fe_return_pandas:
+            y_train = self.dfs['train'].pop(self.label_col)
+            y_train = y_train if isinstance(y_train, pd.Series) else y_train.iloc[:, 0]
+            y_dev = self.dfs['dev'].pop(self.label_col)
+            y_dev = y_dev if isinstance(y_dev, pd.Series) else y_dev.iloc[:, 0]
+            try:
+                self.dfs['train'].pop(self.id_col)
+                self.dfs['dev'].pop(self.id_col)
+            except:
+                self.dfs['train'].pop(self.user_id_col)
+                self.dfs['dev'].pop(self.user_id_col)
+            self.classify(self.dfs['train'], self.dfs['dev'], y_train, y_dev)
+        else:
+            self.classify(self.dfs['train'], self.dfs['dev'])
         step_4_end = time.time()
 
         # Step 5A: Predict on test set
@@ -380,14 +408,17 @@ class BaseDetectorPipeline:
             print('Predicting the result...')
         step_5_start = time.time()
         self.preprocess('test')
-        y_test = self.dfs['test'].pop(self.label_col)
-        y_test = y_test if isinstance(y_test, pd.Series) else y_test.iloc[:, 0]
-        try:
-            id_test = self.dfs['test'].pop(self.id_col)
-        except:
-            id_test = self.dfs['test'].pop(self.user_id_col)
-        id_test = id_test if isinstance(id_test, pd.Series) else id_test.iloc[:, 0]
-        y_pred = self.predict(self.dfs['test'])
+        if self.fe_return_pandas:
+            y_test = self.dfs['test'].pop(self.label_col)
+            y_test = y_test if isinstance(y_test, pd.Series) else y_test.iloc[:, 0]
+            try:
+                id_test = self.dfs['test'].pop(self.id_col)
+            except:
+                id_test = self.dfs['test'].pop(self.user_id_col)
+            id_test = id_test if isinstance(id_test, pd.Series) else id_test.iloc[:, 0]
+            y_pred = self.predict(self.dfs['test'])
+        else:
+            y_pred, y_test = self.predict(self.dfs['test'])
 
         # Step 5B: Grouping if the prediction is on every tweet, not on every account
         if self.account_level == False:
