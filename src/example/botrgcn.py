@@ -38,7 +38,7 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             use_network=True,
             fe_return_pandas=False
         )
-        self.suffix = 'twibot'
+        self.suffix = 'test'
 
     def feature_engineering_u(self, user_df: pd.DataFrame, training):
         # Description preprocessing
@@ -94,7 +94,7 @@ class BotRGCNPipeline(BaseDetectorPipeline):
                 tokenizer='roberta-base',
                 padding=True,
                 truncation=True,
-                max_length=280,
+                max_length=500,
                 add_special_tokens=True,
                 device=0
             )
@@ -175,7 +175,8 @@ class BotRGCNPipeline(BaseDetectorPipeline):
         # Processing user per order
         n_users = list(user_processed.size())[0]
         n_dim = list(tweets_embedded.size())[1]
-        tweets_embedded = self.reorder_tweets(tweets_embedded, n_users, n_dim, user_order)
+        if list(tweets_embedded.size())[0] > 4000:
+            tweets_embedded = self.reorder_tweets(tweets_embedded, n_users, n_dim, user_order)
 
         print("Shapes: ", description_embedded.size(), tweets_embedded.size(), user_processed.size(), edge_index.size(), edge_type.size())
         return description_embedded, tweets_embedded, user_processed, edge_index, edge_type, user_labels

@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # Set nrows to any number to receive a subset of that data
     # or None to get the whole dataset.
 
-    # pipeline.run(dataset_name='MIB', nrows=1000000)
+    pipeline.run(dataset_name='MIB', nrows=None)
     # pipeline.run(dataset_name='MIB-2', nrows=10000)
-    pipeline.run(dataset_name='TwiBot-20', nrows=None)
+    # pipeline.run(dataset_name='TwiBot-20', nrows=None)
     pass
