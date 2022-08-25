@@ -381,7 +381,7 @@ class BaseDetectorPipeline:
 
         # Step 2+3: Preprocessing
         step_3_start, step_3_end = self.preprocess('train')
-        # self.preprocess('dev')
+        self.preprocess('dev')
 
         # Step 4: Classification
         if self.verbose:

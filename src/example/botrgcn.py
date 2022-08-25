@@ -38,12 +38,12 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             use_network=True,
             fe_return_pandas=False
         )
-        self.suffix = 'test'
+        self.suffix = 'twibot_small'
 
     def feature_engineering_u(self, user_df: pd.DataFrame, training):
         # Description preprocessing
         descr_path = f'preprocess_ckpts/BotRGCN/description_{"train" if training else "test"}_{self.suffix}.pt'
-        if not os.path.exists(descr_path) or not training:
+        if not os.path.exists(descr_path):
             description = user_df['description'].fillna('').values.tolist()
             feature_extraction = pipeline(
                 'feature-extraction',
@@ -60,34 +60,65 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             description_embedded = torch.load(descr_path)
 
         # Numerical data preprocessing
-        user_path = f'preprocess_ckpts/BotRGCN/user_{"train" if training else "test"}_{self.suffix}.pt'
-        if not os.path.exists(user_path) or not training:
-            user_df['age'] = (
+        cat_user_path = f'preprocess_ckpts/BotRGCN/cat_{"train" if training else "test"}_{self.suffix}.pt'
+        num_user_path = f'preprocess_ckpts/BotRGCN/num_{"train" if training else "test"}_{self.suffix}.pt'
+        cat_properties=[
+            'protected',
+            'geo_enabled',
+            'verified',
+            'contributors_enabled',
+            'is_translator',
+            'is_translation_enabled',
+            'profile_background_tile',
+            'profile_user_background_image',
+            'has_extended_profile',
+            'default_profile',
+            'default_profile_image'
+        ]
+        num_properties = [
+            'description',
+            'statuses_count',
+            'followers_count',
+            'friends_count',
+            'favourites_count',
+            'screen_name_length',
+            'active_days'
+        ]
+        if not os.path.exists(num_user_path) or not os.path.exists(cat_user_path):
+            user_df['active_days'] = (
                     pd.to_datetime(pd.to_datetime('today')) - 
                     pd.to_datetime(user_df.loc[:, 'created_at']).dt.tz_localize(None)
             ) / np.timedelta64(1, 'D')
-            
-            # Different to original author, we will perform z-score norm on 
-            # both numerical and categorical features
-            user_processed_df = user_df.drop(['id', 'created_at', 'label'], axis=1)
-            user_processed_df = (user_processed_df - user_processed_df.mean(axis=0)) / user_processed_df.std(axis=0)
-            user_processed_df.fillna(0, inplace=True)
-            user_processed = user_processed_df.values
-            user_processed = torch.Tensor(user_processed)
-            torch.save(user_processed, user_path)
+            user_df['screen_name_length'] = user_df['screen_name'].str.len()
+
+            num_user_df = user_df[user_df.columns.intersection(num_properties)]
+            num_user_df = (num_user_df - num_user_df.mean(axis=0)) / num_user_df.std(axis=0)
+            num_user_df.fillna(0, inplace=True)
+            num_user_processed = num_user_df.values
+            num_user_processed = torch.Tensor(num_user_processed)
+            torch.save(num_user_processed, num_user_path)
+
+            cat_user_df = user_df[user_df.columns.intersection(cat_properties)]
+            cat_user_df.fillna(0, inplace=True)
+            cat_user_processed = cat_user_df.values
+            cat_user_processed = torch.Tensor(cat_user_processed)
+            torch.save(cat_user_processed, cat_user_path)
         else:
-            user_processed = torch.load(user_path)
+            num_user_processed = torch.load(num_user_path)
+            cat_user_processed = torch.load(cat_user_path)
         
-        self.user_dim = list(user_processed.size())[1]
+        self.num_dim = list(num_user_processed.size())[1]
+        self.cat_dim = list(cat_user_processed.size())[1]
         user_label = torch.Tensor(user_df['label'].values)
         
-        return description_embedded, user_processed, user_label
+        return description_embedded, num_user_processed, cat_user_processed, user_label
 
     def semantic_encoding(self, tweet_df: pd.DataFrame, training):
         tweet_path = f'preprocess_ckpts/BotRGCN/tweet_{"train" if training else "test"}_{self.suffix}.pt'
         self.user_order = tweet_df['user_id'].unique()
 
-        if not os.path.exists(tweet_path) or not training:
+
+        if not os.path.exists(tweet_path):
             feature_extract = pipeline(
                 'feature-extraction',
                 model='roberta-base',
@@ -104,6 +135,7 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             # tweet_df = TweetDataset(tweet_df, user_order)
             for i, user in enumerate(user_order):
                 print(f"Tweet processing for user {i+1}/{len(user_order)}")
+                # For infrastructure reason, we limit the number of tweet to be inference to 100
                 user_tweets = tweet_df[tweet_df['user_id'] == user]['text'].fillna('').values.tolist()
                 user_tweets_embedded = feature_extract(user_tweets)
                 user_tweets_embedded = [torch.Tensor(t[0]) for t in user_tweets_embedded]
@@ -124,7 +156,7 @@ class BotRGCNPipeline(BaseDetectorPipeline):
         edge_type_path = f'preprocess_ckpts/BotRGCN/edge_type_{"train" if training else "test"}_{self.suffix}.pt'
         self.id2index_dict = {id: index for index, id in enumerate(user_df['id'])}
 
-        if (not os.path.exists(edge_index_path) and not os.path.exists(edge_type_path)) or not training:
+        if not os.path.exists(edge_index_path) and not os.path.exists(edge_type_path):
             # edge_type = np.concatenate([np.zeros(len(following_df)), np.ones(len(follower_df))])
 
             edge_index = []
@@ -167,19 +199,18 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             following_df: edge_index
             follower_df: edge_type
         """
-        description_embedded, user_processed, user_labels = user_df
+        description_embedded, num_user_processed, cat_user_processed, user_labels = user_df
         tweets_embedded, user_order = tweet_df
         edge_index = following_df
         edge_type = follower_df
 
         # Processing user per order
-        n_users = list(user_processed.size())[0]
+        n_users = list(num_user_processed.size())[0]
         n_dim = list(tweets_embedded.size())[1]
-        if list(tweets_embedded.size())[0] > 4000:
-            tweets_embedded = self.reorder_tweets(tweets_embedded, n_users, n_dim, user_order)
+        tweets_embedded = self.reorder_tweets(tweets_embedded, n_users, n_dim, user_order)
 
-        print("Shapes: ", description_embedded.size(), tweets_embedded.size(), user_processed.size(), edge_index.size(), edge_type.size())
-        return description_embedded, tweets_embedded, user_processed, edge_index, edge_type, user_labels
+        print("Shapes: ", description_embedded.size(), tweets_embedded.size(), num_user_processed.size(), cat_user_processed.size(), edge_index.size(), edge_type.size())
+        return description_embedded, tweets_embedded, num_user_processed, cat_user_processed, edge_index, edge_type, user_labels
 
     def classify(self, X_train, X_dev):
         # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -188,7 +219,7 @@ class BotRGCNPipeline(BaseDetectorPipeline):
         weight_decay = 5e-3
 
         # Initialize model
-        self.model = BotRGCN(properties_size=self.user_dim).to(device)
+        self.model = BotRGCN(num_size=self.num_dim, cat_size=self.cat_dim).to(device)
         loss = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
@@ -198,10 +229,11 @@ class BotRGCNPipeline(BaseDetectorPipeline):
         self.model.apply(init_weights)
         
         # Retrieve data
-        description_embedded, tweets_embedded, user_processed, edge_index, edge_type, user_labels = X_train
+        description_embedded, tweets_embedded, num_user_processed, cat_user_processed, edge_index, edge_type, user_labels = X_train
         description_embedded = description_embedded.float().to(device)
         tweets_embedded = tweets_embedded.float().to(device)
-        user_processed = user_processed.float().to(device)
+        num_user_processed = num_user_processed.float().to(device)
+        cat_user_processed = cat_user_processed.float().to(device)
         edge_index = edge_index.to(device)
         edge_type = edge_type.to(device)
         user_labels = user_labels.long().to(device)
@@ -213,7 +245,8 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             output = self.model(
                 description_embedded,
                 tweets_embedded,
-                user_processed,
+                num_user_processed,
+                cat_user_processed,
                 edge_index,
                 edge_type
             )
@@ -229,18 +262,20 @@ class BotRGCNPipeline(BaseDetectorPipeline):
             )
         description_embedded = description_embedded.to('cpu')
         tweets_embedded = tweets_embedded.to('cpu')
-        user_processed = user_processed.to('cpu')
+        num_user_processed = num_user_processed.to('cpu')
+        cat_user_processed = cat_user_processed.to('cpu')
         edge_index = edge_index.to('cpu')
         edge_type = edge_type.to('cpu')
         user_labels = user_labels.to('cpu')
         return self
 
     def predict(self, X_test):
-        description_embedded, tweets_embedded, user_processed, edge_index, edge_type, user_labels = X_test
+        description_embedded, tweets_embedded, num_user_processed, cat_user_processed, edge_index, edge_type, user_labels = X_test
         result = self.model(
             description_embedded,
             tweets_embedded,
-            user_processed,
+            num_user_processed,
+            cat_user_processed,
             edge_index,
             edge_type
         )
@@ -267,7 +302,8 @@ class BotRGCN(torch.nn.Module):
         self,
         description_size = 768,
         tweet_size = 768,
-        properties_size = 14,
+        cat_size = 14,
+        num_size = 14,
         embedding_dimension = 128,
         dropout = 0.3
     ):
@@ -281,12 +317,16 @@ class BotRGCN(torch.nn.Module):
             torch.nn.Linear(tweet_size, int(embedding_dimension / 4)),
             torch.nn.LeakyReLU()
         )
-        self.linear_relu_properties = torch.nn.Sequential(
-            torch.nn.Linear(properties_size, int(embedding_dimension / 4)),
+        self.linear_relu_num_properties = torch.nn.Sequential(
+            torch.nn.Linear(num_size, int(embedding_dimension / 4)),
+            torch.nn.LeakyReLU()
+        )
+        self.linear_relu_cat_properties = torch.nn.Sequential(
+            torch.nn.Linear(cat_size, int(embedding_dimension / 4)),
             torch.nn.LeakyReLU()
         )
         self.linear_relu_input = torch.nn.Sequential(
-            torch.nn.Linear(int(embedding_dimension / 4) * 3, embedding_dimension),
+            torch.nn.Linear(embedding_dimension, embedding_dimension),
             torch.nn.LeakyReLU()
         )
         self.rgcn = RGCNConv(
@@ -305,11 +345,12 @@ class BotRGCN(torch.nn.Module):
         )
 
 
-    def forward(self, des, tweet, prop, edge_index, edge_type):
+    def forward(self, des, tweet, num_prop, cat_prop, edge_index, edge_type):
         d = self.linear_relu_des(des)
         t = self.linear_relu_tweet(tweet)
-        p = self.linear_relu_properties(prop)
-        x = torch.cat((d, t, p), dim=1)
+        n = self.linear_relu_num_properties(num_prop)
+        c = self.linear_relu_cat_properties(cat_prop)
+        x = torch.cat((d, t, n, c), dim=1)
 
         x = self.linear_relu_input(x)
         x = self.rgcn(x, edge_index, edge_type)

@@ -1,3 +1,4 @@
+import os
 import re
 import numpy as np
 import pandas as pd
@@ -6,7 +7,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from typing import Optional, Union, List
 from gensim.models import KeyedVectors
 
-from matplotlib.style import use
 from src.pipeline import BaseDetectorPipeline
 
 
@@ -114,7 +114,6 @@ class AblationPipeline(BaseDetectorPipeline):
                 X_dev = X_dev_indices
         elif self.encoder in ['tfidf']:
             X_train_meta = X_dev_meta = None
-            print(X_train)
             X_train = self.convert_sparse_matrix_to_sparse_tensor(self.tfidf.transform(X_train["text"]))
             X_dev = self.convert_sparse_matrix_to_sparse_tensor(self.tfidf.transform(X_dev["text"]))
 
@@ -259,16 +258,30 @@ class AblationPipeline(BaseDetectorPipeline):
     def semantic_encoding_word2vec(self, tweet_df, training):
         if training:
             self.tokenizer = tf.keras.preprocessing.text.Tokenizer()
-            self.tokenizer.fit_on_texts(tweet_df)
+            self.tokenizer.fit_on_texts(tweet_df['text'])
             words_to_index = self.tokenizer.word_index
 
-            keyed_vectors = KeyedVectors.load_word2vec_format('word2vec/GoogleNews-vectors-negative300.bin', binary=True)
+            # keyed_vectors = KeyedVectors.load_word2vec_format('word2vec/GoogleNews-vectors-negative300.bin', binary=True)
+            self.maxLen = 280
+            embed_vector_len = 300
+            
+            # Train word2vec
+            path = 'preprocess_ckpts/Ablation/w2v.kv'
+            if not os.path.exists(path):
+                from gensim.models import word2vec
+                tweet_tokenized = [t.split() for t in tweet_df['text'].values]
+                keyed_vectors = word2vec.Word2Vec(
+                    tweet_tokenized,
+                    vector_size=embed_vector_len
+                ).wv
+                keyed_vectors.save(path)
+            else:
+                keyed_vectors = KeyedVectors.load(path)
+
             weights = keyed_vectors.vectors
             word_to_vec_map = keyed_vectors.index_to_key
             word_to_vec_map = {word_to_vec_map[i]: i for i in range(len(word_to_vec_map))}
 
-            self.maxLen = 280
-            embed_vector_len = 300
             vocab_len = len(words_to_index) + 1
 
             emb_matrix = np.zeros((vocab_len, embed_vector_len))
@@ -282,6 +295,8 @@ class AblationPipeline(BaseDetectorPipeline):
                 if embedding_vector is not None:
                     emb_matrix[index, :] = embedding_vector
 
+            print(emb_matrix)
+            print(emb_matrix.shape)
             self.embedding_layer = tf.keras.layers.Embedding(
                 input_dim=vocab_len,
                 output_dim=embed_vector_len,
@@ -291,6 +306,9 @@ class AblationPipeline(BaseDetectorPipeline):
             )
 
         return tweet_df
+
+    def semantic_encoding_bert(self, tweet_df, training):
+        return super().semantic_encoding(tweet_df, training)
 
     def feature_engineering_u(self, user_df, training):
         """Perform normalization"""

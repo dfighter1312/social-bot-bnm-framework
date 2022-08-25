@@ -18,21 +18,21 @@ if __name__ == "__main__":
     # pipeline = DnaPipeline()
     # pipeline = BidirectionalLSTMPipeline()
     # pipeline = TuringPipeline()
-    pipeline = BotRGCNPipeline()
-    # pipeline = AblationPipeline(
-    #     units=32,
-    #     dl_types='dense',
-    #     use_tweet=True,
-    #     encoder='tfidf',
-    #     num_layers=2,
-    #     use_tweet_metadata=False,
-    #     use_users=False
-    # )
+    # pipeline = BotRGCNPipeline()
+    pipeline = AblationPipeline(
+        units=32,
+        dl_types='lstm',
+        use_tweet=True,
+        encoder='word2vec',
+        num_layers=2,
+        use_tweet_metadata=False,
+        use_users=False
+    )
 
     # Set nrows to any number to receive a subset of that data
     # or None to get the whole dataset.
 
-    pipeline.run(dataset_name='MIB', nrows=None)
+    # pipeline.run(dataset_name='MIB', nrows=None)
     # pipeline.run(dataset_name='MIB-2', nrows=10000)
-    # pipeline.run(dataset_name='TwiBot-20', nrows=None)
+    pipeline.run(dataset_name='TwiBot-20', nrows=None)
     pass
