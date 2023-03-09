@@ -71,11 +71,15 @@ class LocalFileReader:
         df_bot_users = pd.concat(
             [pd.read_csv(config[path]) for path in paths_user]
         ).reset_index(drop=True)
+        df_bot_users.pop('lang')
+        df_bot_users.pop('time_zone')
         df_bot_users['created_at'] = df_bot_users['created_at'].apply(
             convert_long_date)
         df_bot_users = df_bot_users.astype(dtype=dtypes_format)
 
         df_naive_users = pd.read_csv(config['genuine_users'])
+        df_naive_users.pop('lang')
+        df_naive_users.pop('time_zone')
 
         df_bot_users[label_column] = 1
         df_naive_users[label_column] = 0
@@ -425,6 +429,126 @@ class LocalFileReader:
             'dev': dfs_dev,
             'test': dfs_test
         }
+        
+    def read_twibot_train_mib_test(
+        self,
+        config,
+        label_column,
+        use_users: bool,
+        use_tweet: bool,
+        use_tweet_metadata: bool,
+        use_network: bool,
+        nrows: Optional[int] = None
+    ):
+        twibot_config, mib_config = config
+        twibot_obj = self.read_twibot(
+            twibot_config,
+            label_column,
+            use_users,
+            use_tweet,
+            use_tweet_metadata,
+            use_network,
+            nrows
+        )
+        mib_obj = self.read_mib(
+            mib_config,
+            label_column,
+            use_users,
+            use_tweet,
+            use_tweet_metadata,
+            use_network,
+            nrows
+        )
+        full_obj = {
+            'train': self.aggregate(twibot_obj['train'], twibot_obj['dev']),
+            'dev': twibot_obj['test'],
+            'test': self.aggregate(mib_obj['train'], mib_obj['test'], mib_obj['dev'])
+        }
+        aligned_obj = self.align(full_obj)
+        return aligned_obj
+    
+    def read_mib_train_twibot_test(
+        self,
+        config,
+        label_column,
+        use_users: bool,
+        use_tweet: bool,
+        use_tweet_metadata: bool,
+        use_network: bool,
+        nrows: Optional[int] = None
+    ):
+        twibot_config, mib_config = config
+        twibot_obj = self.read_twibot(
+            twibot_config,
+            label_column,
+            use_users,
+            use_tweet,
+            use_tweet_metadata,
+            use_network,
+            nrows
+        )
+        mib_obj = self.read_mib(
+            mib_config,
+            label_column,
+            use_users,
+            use_tweet,
+            use_tweet_metadata,
+            use_network,
+            nrows
+        )
+        full_obj = {
+            'train': self.aggregate(mib_obj['train'], mib_obj['dev']),
+            'dev': mib_obj['test'],
+            'test': self.aggregate(twibot_obj['train'], twibot_obj['test'], twibot_obj['dev'])
+        }
+        aligned_obj = self.align(full_obj)
+        return aligned_obj
+        
+    def aggregate(self, *ds):
+        if len(ds) > 1:
+            ds_full = {}
+            for key in ds[0]:
+                if ds[0][key] is not None:
+                    ds_full[key] = pd.concat([d[key] for d in ds])
+                else:
+                    ds_full[key] = None
+            return ds_full
+        elif len(ds) == 1:
+            return ds
+        else:
+            raise ValueError('Must have at least 1 dataset to be aggregated')
+            
+    
+    def align(self, obj: Dict):
+        """
+        Make the column between training, dev and test set consistent to each other.
+        
+        Args:
+            obj (Dict): Data dictionary with format 
+                {
+                    'train': {
+                        'user_df': ...
+                        'tweet_df': ...
+                    },
+                    'dev': ...
+                    'test': ...
+                }
+        """
+        keys = obj['test']
+        for key in keys:
+            if obj['test'][key] is not None:
+                train_cols: pd.Index = obj['train'][key].columns
+                dev_cols: pd.Index = obj['dev'][key].columns
+                test_cols: pd.Index = obj['test'][key].columns
+                intersect_cols = train_cols.intersection(dev_cols).intersection(test_cols)
+                
+                obj['train'][key] = obj['train'][key][intersect_cols]
+                obj['dev'][key] = obj['dev'][key][intersect_cols]
+                obj['test'][key] = obj['test'][key][intersect_cols]
+            else:
+                obj['train'][key] = obj['test'][key] = obj['dev'][key] = None
+        return obj
+        
 
     def convert_long_date(self, str):
         """Convert Long Java string to Datetime format."""

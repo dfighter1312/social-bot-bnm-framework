@@ -1,13 +1,13 @@
 import time
 import numpy as np
-import tensorflow as tf
+# import tensorflow as tf
 import pandas as pd
 from typing import Any, List, Optional, Union
 from src.data_read import LocalFileReader
 from sklearn.metrics import accuracy_score, matthews_corrcoef, precision_score, recall_score
 
 np.random.seed(0)
-tf.random.set_seed(0)
+# tf.random.set_seed(0)
 
 class BaseDetectorPipeline:
     """
@@ -78,6 +78,36 @@ class BaseDetectorPipeline:
         elif dataset_name == 'TwiBot-20':
             config = self.local_file_reader.get_twibot_config()
             self.dfs = self.local_file_reader.read_twibot(
+                config,
+                self.label_col,
+                self.use_user,
+                self.use_tweet,
+                self.use_tweet_metadata,
+                self.use_network,
+                nrows
+            )
+            # Turn off tweet metadata since there is no usage
+            self.use_tweet_metadata = False
+        elif dataset_name == 'Twibot-train-MIB-test':
+            twibot_config = self.local_file_reader.get_twibot_config()
+            mib_config = self.local_file_reader.get_mib_config()
+            config = (twibot_config, mib_config)
+            self.dfs = self.local_file_reader.read_twibot_train_mib_test(
+                config,
+                self.label_col,
+                self.use_user,
+                self.use_tweet,
+                self.use_tweet_metadata,
+                self.use_network,
+                nrows
+            )
+            # Turn off tweet metadata since there is no usage
+            self.use_tweet_metadata = False
+        elif dataset_name == 'MIB-train-Twibot-test':
+            twibot_config = self.local_file_reader.get_twibot_config()
+            mib_config = self.local_file_reader.get_mib_config()
+            config = (twibot_config, mib_config)
+            self.dfs = self.local_file_reader.read_mib_train_twibot_test(
                 config,
                 self.label_col,
                 self.use_user,
