@@ -503,12 +503,52 @@ class LocalFileReader:
         }
         aligned_obj = self.align(full_obj)
         return aligned_obj
+    
+    def read_mib_twibot_mix(
+        self,
+        config,
+        label_column,
+        use_users: bool,
+        use_tweet: bool,
+        use_tweet_metadata: bool,
+        use_network: bool,
+        nrows: Optional[int] = None
+    ):
+        twibot_config, mib_config = config
+        twibot_obj = self.read_twibot(
+            twibot_config,
+            label_column,
+            use_users,
+            use_tweet,
+            use_tweet_metadata,
+            use_network,
+            nrows
+        )
+        mib_obj = self.read_mib(
+            mib_config,
+            label_column,
+            use_users,
+            use_tweet,
+            use_tweet_metadata,
+            use_network,
+            nrows
+        )
+        full_obj = {
+            'train': self.aggregate(mib_obj['train'], twibot_obj['train']),
+            'dev': self.aggregate(mib_obj['dev'], twibot_obj['dev']),
+            'test': self.aggregate(mib_obj['test'], twibot_obj['test'])
+        }
+        aligned_obj = self.align(full_obj)
+        return aligned_obj
         
     def aggregate(self, *ds):
         if len(ds) > 1:
             ds_full = {}
             for key in ds[0]:
                 if ds[0][key] is not None:
+                    intersect_cols: pd.Index = ds[0][key].columns
+                    for d in ds[1:]:
+                        intersect_cols = intersect_cols.intersection(d[key].columns)
                     ds_full[key] = pd.concat([d[key] for d in ds])
                 else:
                     ds_full[key] = None

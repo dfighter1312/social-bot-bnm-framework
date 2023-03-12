@@ -118,6 +118,21 @@ class BaseDetectorPipeline:
             )
             # Turn off tweet metadata since there is no usage
             self.use_tweet_metadata = False
+        elif dataset_name == 'MIB-Twibot-mix':
+            twibot_config = self.local_file_reader.get_twibot_config()
+            mib_config = self.local_file_reader.get_mib_config()
+            config = (twibot_config, mib_config)
+            self.dfs = self.local_file_reader.read_mib_twibot_mix(
+                config,
+                self.label_col,
+                self.use_user,
+                self.use_tweet,
+                self.use_tweet_metadata,
+                self.use_network,
+                nrows
+            )
+            # Turn off tweet metadata since there is no usage
+            self.use_tweet_metadata = False
         else:
             raise ValueError(
                 "dataset_name must be MIB or TwiBot-20. Contact the "

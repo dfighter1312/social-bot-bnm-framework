@@ -37,4 +37,5 @@ if __name__ == "__main__":
     # pipeline.run(dataset_name='TwiBot-20', nrows=None)
     pipeline.run(dataset_name='Twibot-train-MIB-test', nrows=None)
     pipeline.run(dataset_name='MIB-train-Twibot-test', nrows=None)
+    pipeline.run(dataset_name='MIB-Twibot-mix', nrows=None)
     pass
