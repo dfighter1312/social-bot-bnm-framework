@@ -15,13 +15,13 @@ if __name__ == "__main__":
 - Check the evaluation
 
 ```
-Dataset name: MIB (2794 samples)
-Accuracy: 0.9029
-Precision: 0.9494
-Recall: 0.9465
-MCC: 0.8391
-Training time: 1.2249s
-Inference time: 0.3834s
+Dataset name: MIB (3892 samples)
+Accuracy: 0.9645
+Precision: 0.9711
+Recall: 0.8911
+MCC: 0.9073
+Training time 0.1681s
+Inference time: 0.0331s
 ```
 
 ## To implement a new detector
